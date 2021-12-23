@@ -74,6 +74,9 @@ def main() -> None:
                 # label of each instance in the target image
                 instance_lbs = np.unique(instances)
                 for i_lb in instance_lbs:
+                    # 0 - unlabled, -1 - license plate
+                    if i_lb == 0 or i_lb == -1:
+                        continue
                     # extract single target image for current lable
                     label = i_lb if i_lb < 1000 else math.floor(i_lb / 1000)
                     target = np.where(instances == i_lb, label, 0)
