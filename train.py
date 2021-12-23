@@ -80,7 +80,6 @@ def main() -> None:
                     # extract single target image for current lable
                     label = i_lb if i_lb < 1000 else math.floor(i_lb / 1000)
                     target = np.where(instances == i_lb, label, 0)
-                    #print(target.shape)
                     # generate positive/negative guidance
                     fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, target, np.zeros(target.shape))
                     # initialize old values
