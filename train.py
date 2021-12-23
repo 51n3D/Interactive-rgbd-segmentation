@@ -4,16 +4,17 @@ import imageio
 import math
 import cv2
 import tqdm
-
+from unet import UNet
 
 WHITE = 37
 GREEN = 92
 BLUE = 96
 YELLOW = 93
 
-def log(level: int, message: str, color: int=WHITE):
-    log_levels = {0: "TRACE",1: "DEBUG",2: "INFO",
-        3: "WARN",4: "ERROR",5: "FATAL"}
+
+def log(level: int, message: str, color: int = WHITE):
+    log_levels = {0: "TRACE", 1: "DEBUG", 2: "INFO",
+        3: "WARN", 4: "ERROR", 5: "FATAL"}
     print("[{}]:\33[{}m".format(log_levels[level], color), message, "\33[{}m".format(WHITE))
 
 
@@ -47,9 +48,17 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
     # return converted distance maps to probabilty maps
     return np.expm1(chamfer_fneg.astype(np.float64)), np.expm1(chamfer_fpos.astype(np.float64))
 
+def prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, disparity):
+    image = image.reshape((1, image.shape[2], image.shape[0], image.shape[1])).astype("double")
+    fneg_interactions = fneg_interactions.reshape((1, 1, fneg_interactions.shape[0], fneg_interactions.shape[1])).astype("double")
+    fpos_interactions = fpos_interactions.reshape((1, 1, fpos_interactions.shape[0], fpos_interactions.shape[1])).astype("double")
+    disparity = disparity.reshape((1, 1, disparity.shape[0], disparity.shape[1])).astype("double")
+
+    return image, fneg_interactions, fpos_interactions, disparity
 
 def main() -> None:
     max_interactions = 10 # number of max interactions
+    model = UNet(1)
 
     disparity_ending = "disparity"
     instances_ending = "instanceIds"
@@ -99,7 +108,8 @@ def main() -> None:
                         if fpos_interactions.max() > 0: # zero at first iteration
                             fpos_interactions /= fpos_interactions.max() # normalize back to <0, 1>
                         # build 6 channel image for training (rgbfnegfpos - model_input[:,:,:-2], disparity - model_input[:,:,-2], target - model_input[:,:,-1])
-                        model_input = np.dstack((image, fneg_interactions, fpos_interactions, disparity, target))
+                        # model_input = np.dstack((image, fneg_interactions, fpos_interactions, disparity, target))
+                        model_input = prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, disparity)
                         #####################################################################################
                         # TRAIN model # FILL                                                                #
                         # call the model.fit() or model.predict() or whatever                               #
@@ -107,9 +117,10 @@ def main() -> None:
                         # - loss is being computed from final prediction when the last interaction occured  #
                         # (after this cycle compute the loss)                                               #
                         #####################################################################################
-                        prediction = np.zeros(target.shape) # FILL update this with model prediction/result
+                        prediction = model.forward(model_input)
+                        np_prediction = prediction.detach().numpy()[0][0]
                         # add new corrections (new pos/neg clicks)
-                        fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, target, prediction)
+                        fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, target, np_prediction)
                     progress_bar.update(1)
             progress_bar.close()
         
@@ -119,23 +130,6 @@ def main() -> None:
         log(2, "Validation of Epoch " + str(epoch), YELLOW)
 
         epoch += 1
-        
-
-
-
-
-
-
-
-    
-
-
-    
-
-
-    
-
-
 
 
 if __name__ == "__main__":
