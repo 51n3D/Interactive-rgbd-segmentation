@@ -165,7 +165,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 elif process_type == VALIDATE:
                     with torch.no_grad():
                         prediction = model.forward(model_input)
-                prediction.cpu()
+                prediction = prediction.cpu()
                 prediction.detach().numpy()
                         
                 # add new corrections (new pos/neg clicks)
