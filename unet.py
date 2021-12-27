@@ -132,7 +132,7 @@ class UNet(nn.Module):
         target = target.reshape((1, 1, target.shape[0], target.shape[1]))
         target = torch.tensor(target, dtype=torch.float32)
 
-        loss = nn.functional.mse_loss(prediction, target)
+        loss = self.dice_loss(prediction, target)
         print("Loss: {}".format(loss.item()))
 
         optimizer.zero_grad()
@@ -140,3 +140,16 @@ class UNet(nn.Module):
         optimizer.step()
 
         return loss
+
+    def dice_loss(self, inputs, targets, smooth=1):
+        # comment out if your model contains a sigmoid or equivalent activation layer
+        inputs = torch.sigmoid(inputs)
+
+        # flatten label and prediction tensors
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        intersection = (inputs * targets).sum()
+        dice = (2. * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
+
+        return 1 - dice
