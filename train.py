@@ -168,7 +168,6 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 prediction.cpu()
                 prediction.detach().numpy()
                         
-
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
                     fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, targets[b], prediction[b][0])
@@ -187,7 +186,6 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 # show_target_and_prediction_image(prediction, target)
                 progress_bar.update(1)
         progress_bar.close()
-        
     return np.array(out)
 
         
@@ -196,7 +194,8 @@ def main() -> None:
     log(2, "")
     torch.cuda.empty_cache()
     max_interactions = 10 # number of max interactions
-    model = UNet(base=6).to(device)
+    model = UNet(base=6)
+    model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
     best_model_path = os.path.join("best_model", "InteractiveModel.pth")
