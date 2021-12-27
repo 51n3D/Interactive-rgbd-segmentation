@@ -114,7 +114,7 @@ class UNet(nn.Module):
         self.outc = outconv(2**base, n_classes)
 
     def forward(self, x):
-        x = x.reshape((1, x.shape[2], x.shape[0], x.shape[1]))
+        x = x.reshape((x.shape[0], x.shape[3], x.shape[1], x.shape[2]))
         x = torch.tensor(x, dtype=torch.float32)
 
         x1 = self.down1(x)
@@ -130,11 +130,10 @@ class UNet(nn.Module):
         return x
 
     def backpropagation(self, prediction, target, optimizer):
-        target = target.reshape((1, 1, target.shape[0], target.shape[1]))
+        target = target.reshape((target.shape[0], 1, target.shape[1], target.shape[2]))
         target = torch.tensor(target, dtype=torch.float32)
 
         loss = self.dice_loss(prediction, target)
-        log(2, "Loss: {}".format(loss.item()))
 
         optimizer.zero_grad()
         loss.backward()
