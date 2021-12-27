@@ -5,6 +5,11 @@ import math
 import cv2
 import tqdm
 from unet import UNet
+import torch
+import matplotlib.pyplot as plt
+import os
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 WHITE = 37
 GREEN = 92
@@ -48,17 +53,23 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
     # return converted distance maps to probabilty maps
     return np.expm1(chamfer_fneg.astype(np.float64)), np.expm1(chamfer_fpos.astype(np.float64))
 
+def show_target_and_prediction_image(prediction, target):
+    f, axarr = plt.subplots(1, 2)
+    axarr[0] = plt.imshow(prediction.detach().numpy()[0][0])
+    axarr[1] = plt.imshow(target)
+    plt.show()
+
 def prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, disparity):
     image = image.reshape((1, image.shape[2], image.shape[0], image.shape[1])).astype("double")
     fneg_interactions = fneg_interactions.reshape((1, 1, fneg_interactions.shape[0], fneg_interactions.shape[1])).astype("double")
     fpos_interactions = fpos_interactions.reshape((1, 1, fpos_interactions.shape[0], fpos_interactions.shape[1])).astype("double")
     disparity = disparity.reshape((1, 1, disparity.shape[0], disparity.shape[1])).astype("double")
-
     return image, fneg_interactions, fpos_interactions, disparity
 
 def main() -> None:
-    max_interactions = 10 # number of max interactions
-    model = UNet(1)
+    max_interactions = 5 # number of max interactions
+    model = UNet(base=2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
     disparity_ending = "disparity"
     instances_ending = "instanceIds"
@@ -95,7 +106,6 @@ def main() -> None:
                     old_fneq_inter = np.zeros(target.shape)
                     old_fpos_inter = np.zeros(target.shape)
                     # initialize prediction (loss is computed after for cycle)
-                    prediction = np.zeros(target.shape)
                     for i in range(max_interactions):
                         # generate intensity map for positive/negative click 
                         w = (max_interactions - i) / max_interactions # weight of click linearly decrease with number of interactions
@@ -108,8 +118,8 @@ def main() -> None:
                         if fpos_interactions.max() > 0: # zero at first iteration
                             fpos_interactions /= fpos_interactions.max() # normalize back to <0, 1>
                         # build 6 channel image for training (rgbfnegfpos - model_input[:,:,:-2], disparity - model_input[:,:,-2], target - model_input[:,:,-1])
-                        # model_input = np.dstack((image, fneg_interactions, fpos_interactions, disparity, target))
-                        model_input = prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, disparity)
+                        model_input = np.dstack((image, fneg_interactions, fpos_interactions, disparity))
+                        # model_input = prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, disparity)
                         #####################################################################################
                         # TRAIN model # FILL                                                                #
                         # call the model.fit() or model.predict() or whatever                               #
@@ -121,7 +131,12 @@ def main() -> None:
                         np_prediction = prediction.detach().numpy()[0][0]
                         # add new corrections (new pos/neg clicks)
                         fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, target, np_prediction)
+
+                    # Calculate loss and backpropate
+                    model.backpropagation(prediction, target, optimizer)
+                    # show_target_and_prediction_image(prediction, target)
                     progress_bar.update(1)
+
             progress_bar.close()
         
         #####################################################################################

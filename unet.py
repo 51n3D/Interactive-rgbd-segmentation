@@ -54,14 +54,12 @@ class up(nn.Module):
     def layers_list(self):
         return self.conv.layers_list()
 
-    def forward(self, x1, x2=None, x3=None, x4=None, x5=None):
+    def forward(self, x1, x2=None):
         x1 = self.up(x1)
-        if x2 is None and x3 is None:
+        if x2 is None:
             x = x1
-        elif x3 is None:
-            x = torch.cat([x2, x1], dim=1)
         else:
-            x = torch.cat([x2, x3, x4, x5, x1], dim=1)
+            x = torch.cat([x2, x1], dim=1)
         x = self.conv(x)
         return x
 
@@ -89,6 +87,7 @@ class mid(nn.Module):
 class outconv(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(outconv, self).__init__()
+        self.relu = nn.ReLU(inplace=True)
         self.conv = nn.Conv2d(in_ch, out_ch, 1)
 
     def layers_list(self):
@@ -96,72 +95,48 @@ class outconv(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-        return x
+        return self.relu(x)
 
 
 class UNet(nn.Module):
-    def __init__(self, n_classes):
+    def __init__(self, n_classes=1, base=10):
         super(UNet, self).__init__()
-        self.rgb_down1 = down(3, 32, pool=False)
-        self.rgb_down2 = down(32, 64)
-        self.rgb_down3 = down(64, 128)
-        self.rgb_down4 = down(128, 256)
-
-        self.fneg_interactions_down1 = down(1, 32, pool=False)
-        self.fneg_interactions_down2 = down(32, 64)
-        self.fneg_interactions_down3 = down(64, 128)
-        self.fneg_interactions_down4 = down(128, 256)
-
-        self.fpos_interactions_down1 = down(1, 32, pool=False)
-        self.fpos_interactions_down2 = down(32, 64)
-        self.fpos_interactions_down3 = down(64, 128)
-        self.fpos_interactions_down4 = down(128, 256)
-
-        self.disparity_down1 = down(1, 32, pool=False)
-        self.disparity_down2 = down(32, 64)
-        self.disparity_down3 = down(64, 128)
-        self.disparity_down4 = down(128, 256)
-
-        self.mid = mid(1024, 2048, 1024)
-        self.up1 = up(1024, 256, 1024)
-        self.up2 = up(768, 128, 256)
-        self.up3 = up(384, 64, 128)
-        self.up4 = up(192, 64, 64)
-
-        self.outc = outconv(64, n_classes)
+        self.down1 = down(6, 2**base, pool=False)
+        self.down2 = down(2**base, 2**(base+1))
+        self.down3 = down(2**(base+1), 2**(base+2))
+        self.down4 = down(2**(base+2), 2**(base+3))
+        self.mid = mid(2**(base+3), 2**(base+4))
+        self.up1 = up(2**(base+4), 2**(base+2), 2**(base+3))
+        self.up2 = up(2**(base+3), 2**(base+1), 2**(base+2))
+        self.up3 = up(2**(base+2), 2**base, 2**(base+1))
+        self.up4 = up(2**(base+1), 2**base, 2**base)
+        self.outc = outconv(2**base, n_classes)
 
     def forward(self, x):
-        image, fneg_interactions, fpos_interactions, disparity = x
-        rgb = torch.tensor(image, dtype=torch.float32)
-        fneg_interactions = torch.tensor(fneg_interactions, dtype=torch.float32)
-        fpos_interactions = torch.tensor(fpos_interactions, dtype=torch.float32)
-        disparity = torch.tensor(disparity, dtype=torch.float32)
+        x = x.reshape((1, x.shape[2], x.shape[0], x.shape[1]))
+        x = torch.tensor(x, dtype=torch.float32)
 
-        rgb1 = self.rgb_down1(rgb)
-        rgb2 = self.rgb_down2(rgb1)
-        rgb3 = self.rgb_down3(rgb2)
-        rgb4 = self.rgb_down4(rgb3)
-
-        fneg_interactions_1 = self.fneg_interactions_down1(fneg_interactions)
-        fneg_interactions_2 = self.fneg_interactions_down2(fneg_interactions_1)
-        fneg_interactions_3 = self.fneg_interactions_down3(fneg_interactions_2)
-        fneg_interactions_4 = self.fneg_interactions_down4(fneg_interactions_3)
-
-        fpos_interactions_1 = self.fneg_interactions_down1(fpos_interactions)
-        fpos_interactions_2 = self.fneg_interactions_down2(fpos_interactions_1)
-        fpos_interactions_3 = self.fneg_interactions_down3(fpos_interactions_2)
-        fpos_interactions_4 = self.fneg_interactions_down4(fpos_interactions_3)
-
-        disparity1 = self.disparity_down1(disparity)
-        disparity2 = self.disparity_down2(disparity1)
-        disparity3 = self.disparity_down3(disparity2)
-        disparity4 = self.disparity_down4(disparity3)
-
-        x5 = self.mid(torch.cat([rgb4, fneg_interactions_4, fpos_interactions_4, disparity4], dim=1))
-        x = self.up1(x5)
-        x = self.up2(x, rgb3, fneg_interactions_3, fpos_interactions_3, disparity3)
-        x = self.up3(x, rgb2, fneg_interactions_2, fpos_interactions_2, disparity2)
-        x = self.up4(x, rgb1, fneg_interactions_1, fpos_interactions_1, disparity1)
+        x1 = self.down1(x)
+        x2 = self.down2(x1)
+        x3 = self.down3(x2)
+        x4 = self.down4(x3)
+        x5 = self.mid(x4)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
         x = self.outc(x)
-
         return x
+
+    def backpropagation(self, prediction, target, optimizer):
+        target = target.reshape((1, 1, target.shape[0], target.shape[1]))
+        target = torch.tensor(target, dtype=torch.float32)
+
+        loss = nn.functional.mse_loss(prediction, target)
+        print("Loss: {}".format(loss.item()))
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        return loss
