@@ -160,9 +160,14 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 # push data to device
                 data = data.reshape((data.shape[0], data.shape[3], data.shape[1], data.shape[2]))
                 model_input = torch.tensor(data, dtype=torch.float32).to(device)
-                prediction = model.forward(model_input)
+                if process_type == TRAIN:
+                    prediction = model.forward(model_input)
+                elif process_type == VALIDATE:
+                    with torch.no_grad():
+                        prediction = model.forward(model_input)
                 prediction.cpu()
                 prediction.detach().numpy()
+                        
 
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
