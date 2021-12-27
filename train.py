@@ -25,6 +25,11 @@ def total_instances(instances_files: list) -> int:
     return count
 
 
+def down_sample(image: np.ndarray, ratio: int) -> np.ndarray:
+    dim = (int(image.shape[1] / ratio), int(image.shape[0] / ratio))
+    return cv2.resize(image, dim, interpolation=cv2.INTER_CUBIC)
+
+
 def distance_map(shape: tuple, marked_pixels: tuple) -> np.ndarray:
     map = np.zeros(shape, dtype=np.uint8)
     map[marked_pixels] = 1
@@ -100,6 +105,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             depth = np.where(disparity > 0, (0.209313 * 2262.52) / (( disparity - 1. ) / 256.), 0)
             # get instance segmentation of image (to generate new dataset)
             instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
+            # downsample data
+            image = down_sample(image, 2)
+            depth = down_sample(depth, 2)
+            instances = down_sample(instances, 2)
             # label of each instance in the target image (0 - unlabled, -1 - license plate)
             instance_lbs = np.unique(instances)
             instance_lbs = instance_lbs[(instance_lbs != 0) | (instance_lbs != -1)]
@@ -198,7 +207,7 @@ def main() -> None:
 
         #validation
         log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
-        dataset = os.path.join("dataset", "train")
+        dataset = os.path.join("dataset", "val")
         model.eval()
         accuracy = run(model, optimizer, max_interactions, dataset, 4, VALIDATE)
         accuracy = accuracy.T
