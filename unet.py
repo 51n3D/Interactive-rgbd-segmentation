@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from logger import log
 
 
 class double_conv(nn.Module):
@@ -133,7 +134,7 @@ class UNet(nn.Module):
         target = torch.tensor(target, dtype=torch.float32)
 
         loss = self.dice_loss(prediction, target)
-        print("Loss: {}".format(loss.item()))
+        log(2, "Loss: {}".format(loss.item()))
 
         optimizer.zero_grad()
         loss.backward()

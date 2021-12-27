@@ -8,19 +8,10 @@ from unet import UNet
 import torch
 import matplotlib.pyplot as plt
 import os
+import logger
+from logger import log
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-WHITE = 37
-GREEN = 92
-BLUE = 96
-YELLOW = 93
-
-
-def log(level: int, message: str, color: int = WHITE):
-    log_levels = {0: "TRACE", 1: "DEBUG", 2: "INFO",
-        3: "WARN", 4: "ERROR", 5: "FATAL"}
-    print("[{}]:\33[{}m".format(log_levels[level], color), message, "\33[{}m".format(WHITE))
 
 
 def total_instances(instances_files: list) -> int:
@@ -53,11 +44,13 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
     # return converted distance maps to probabilty maps
     return np.expm1(chamfer_fneg.astype(np.float64)), np.expm1(chamfer_fpos.astype(np.float64))
 
+
 def show_target_and_prediction_image(prediction, target):
     f, axarr = plt.subplots(1, 2)
     axarr[0] = plt.imshow(prediction.detach().numpy()[0][0])
     axarr[1] = plt.imshow(target)
     plt.show()
+
 
 def prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, disparity):
     image = image.reshape((1, image.shape[2], image.shape[0], image.shape[1])).astype("double")
@@ -66,20 +59,21 @@ def prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, di
     disparity = disparity.reshape((1, 1, disparity.shape[0], disparity.shape[1])).astype("double")
     return image, fneg_interactions, fpos_interactions, disparity
 
+
 def main() -> None:
     max_interactions = 5 # number of max interactions
-    model = UNet(base=2)
+    model = UNet(base=6)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
     image_ending = "leftImg8bit"
     disparity_ending = "disparity"
     instances_ending = "instanceIds"
 
-    log(2, "TRAINING - interactive segmentation of rgbd images", GREEN)
+    log(2, "TRAINING - interactive segmentation of rgbd images", logger.GREEN)
     epoch = 1
     while True:
         log(2, "")
-        log(2, "Epoch " + str(epoch), BLUE)
+        log(2, "Epoch " + str(epoch), logger.BLUE)
         train_dir = os.path.join("dataset", "train")
         for city in os.listdir(train_dir):
             city_dir = os.path.join(train_dir, city)
@@ -145,7 +139,7 @@ def main() -> None:
         #####################################################################################
         # VALIDATE model # FILL                                                             #
         #####################################################################################
-        log(2, "Validation of Epoch " + str(epoch), YELLOW)
+        log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
 
         epoch += 1
 
