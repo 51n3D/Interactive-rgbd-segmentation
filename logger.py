@@ -3,6 +3,7 @@ WHITE = 37
 GREEN = 92
 BLUE = 96
 YELLOW = 93
+RED = 91
 
 
 def log(level: int, message: str, color: int = WHITE):

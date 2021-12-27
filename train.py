@@ -12,6 +12,7 @@ import logger
 from logger import log
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 TRAIN = 0
 VALIDATE = 0
@@ -101,14 +102,16 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
         batch = np.random.choice(instances_files.shape[0], n, replace=False)
         for image_file, instances_file, disparity_file in zip(image_files[batch], instances_files[batch], disparity_files[batch]):
             image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED).astype(np.float32) # rgb
+            # convert disparity to depth map
             disparity = cv2.imread(disparity_file, cv2.IMREAD_UNCHANGED).astype(np.float32) # disparity map
-            depth = np.where(disparity > 0, (0.209313 * 2262.52) / (( disparity - 1. ) / 256.), 0)
+            #disparity[disparity > 0] = (disparity[disparity > 0] - 1.) / 256.
+            #depth = (0.209313 * 2262.52) / disparity
             # get instance segmentation of image (to generate new dataset)
             instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
             # downsample data
-            image = down_sample(image, 2)
-            depth = down_sample(depth, 2)
-            instances = down_sample(instances, 2)
+            image = down_sample(image, 4)
+            disparity = down_sample(disparity, 4)
+            instances = down_sample(instances, 4)
             # label of each instance in the target image (0 - unlabled, -1 - license plate)
             instance_lbs = np.unique(instances)
             instance_lbs = instance_lbs[(instance_lbs != 0) | (instance_lbs != -1)]
@@ -131,7 +134,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             old_fneg_inters = np.full(targets.shape, 0)
             old_fpos_inters = np.full(targets.shape, 0)
             for current_inter in range(max_interactions):
-                model_input = []
+                data = []
                 for b in range(batch.shape[0]):
                     # generate intensity map for positive/negative click
                     w = (max_interactions - current_inter) / max_interactions # weight of click linearly decrease with number of interactions
@@ -145,7 +148,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     if fpos_interactions.max() > 0:
                         fpos_interactions /= fpos_interactions.max() # normalize back to <0, 1>
                     # build 6 channel image for training (rgbdpn)
-                    model_input.append(np.dstack((image, depth, fneg_interactions, fpos_interactions)))
+                    data.append(np.dstack((image, disparity, fneg_interactions, fpos_interactions)))
+                data = np.array(data)
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -153,7 +157,11 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 # - loss is being computed from final prediction when the last interaction occured  #
                 # (after this cycle compute the loss)                                               #
                 #####################################################################################
-                prediction = model.forward(np.array(model_input))
+                # push data to device
+                data = data.reshape((data.shape[0], data.shape[3], data.shape[1], data.shape[2]))
+                model_input = torch.tensor(data, dtype=torch.float32).to(device)
+                prediction = model.forward(model_input)
+                prediction.cpu()
                 prediction.detach().numpy()
 
                 # add new corrections (new pos/neg clicks)
@@ -170,6 +178,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 if process_type == TRAIN:
                     # Calculate loss and backpropate
                     out.append(model.backpropagation(prediction, targets, optimizer))
+                torch.cuda.empty_cache()
                 # show_target_and_prediction_image(prediction, target)
                 progress_bar.update(1)
         progress_bar.close()
@@ -178,8 +187,11 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
 
         
 def main() -> None:
+    log(2, "Device - {}".format(device), logger.RED)
+    log(2, "")
+    torch.cuda.empty_cache()
     max_interactions = 10 # number of max interactions
-    model = UNet(base=6)
+    model = UNet(base=6).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
     best_model_path = os.path.join("best_model", "InteractiveModel.pth")
@@ -209,7 +221,7 @@ def main() -> None:
         log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
         dataset = os.path.join("dataset", "val")
         model.eval()
-        accuracy = run(model, optimizer, max_interactions, dataset, 4, VALIDATE)
+        accuracy = run(model, optimizer, max_interactions, dataset, 16, VALIDATE)
         accuracy = accuracy.T
         mpa = accuracy[0].sum() / accuracy[0].shape[0]
         miou = accuracy[1].sum() / accuracy[1].shape[0]

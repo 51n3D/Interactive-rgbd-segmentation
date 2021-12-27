@@ -114,9 +114,6 @@ class UNet(nn.Module):
         self.outc = outconv(2**base, n_classes)
 
     def forward(self, x):
-        x = x.reshape((x.shape[0], x.shape[3], x.shape[1], x.shape[2]))
-        x = torch.tensor(x, dtype=torch.float32)
-
         x1 = self.down1(x)
         x2 = self.down2(x1)
         x3 = self.down3(x2)
