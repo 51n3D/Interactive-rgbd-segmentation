@@ -195,7 +195,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
-                print(prediction)
+                #print(prediction)
                 out.append(model.backpropagation(prediction, targets, optimizer).detach().numpy())
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
