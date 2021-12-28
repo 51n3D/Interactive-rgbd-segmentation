@@ -88,7 +88,7 @@ class mid(nn.Module):
 class outconv(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(outconv, self).__init__()
-        self.relu = nn.ReLU(inplace=True)
+        self.sigm = nn.Sigmoid(inplace=True)
         self.conv = nn.Conv2d(in_ch, out_ch, 1)
 
     def layers_list(self):
@@ -96,7 +96,7 @@ class outconv(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-        return self.relu(x)
+        return self.sigm(x)
 
 
 class UNet(nn.Module):

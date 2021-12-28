@@ -173,6 +173,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                         prediction = model.forward(model_input)
                 prediction = prediction.cpu()
                 np_prediction = prediction.detach().numpy()
+                np_prediction = np.where(np_prediction > 0.5, 1, 0)
                         
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
