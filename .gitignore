@@ -2,3 +2,4 @@
 training_data
 __pycache__
 best_model
+test.py

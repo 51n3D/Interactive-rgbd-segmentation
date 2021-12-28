@@ -11,6 +11,11 @@ import os
 import logger
 from logger import log
 
+BASE = 5
+BATCH_SIZE = 8
+DOWNSAMPLE = 4
+
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -26,9 +31,9 @@ def total_instances(instances_files: list) -> int:
     return count
 
 
-def down_sample(image: np.ndarray, ratio: int) -> np.ndarray:
+def downsample(image: np.ndarray, ratio: int) -> np.ndarray:
     dim = (int(image.shape[1] / ratio), int(image.shape[0] / ratio))
-    return cv2.resize(image, dim, interpolation=cv2.INTER_CUBIC)
+    return cv2.resize(image, dim, interpolation=cv2.INTER_NEAREST)
 
 
 def distance_map(shape: tuple, marked_pixels: tuple) -> np.ndarray:
@@ -106,11 +111,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             #disparity[disparity > 0] = (disparity[disparity > 0] - 1.) / 256.
             #depth = (0.209313 * 2262.52) / disparity
             # get instance segmentation of image (to generate new dataset)
-            instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
+            instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.unit8)
             # downsample data
-            image = down_sample(image, 2)
-            disparity = down_sample(disparity, 2)
-            instances = down_sample(instances, 2)
+            image = downsample(image, DOWNSAMPLE)
+            disparity = downsample(disparity, DOWNSAMPLE)
             # label of each instance in the target image (0 - unlabled, -1 - license plate)
             instance_lbs = np.unique(instances)
             instance_lbs = instance_lbs[(instance_lbs != 0) | (instance_lbs != -1)]
@@ -123,7 +127,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             for i, i_lb in enumerate(instance_lbs[batch]):
                 # single target image for current lable
                 #label = i_lb if i_lb < 1000 else math.floor(i_lb / 1000)
-                targets.append(np.where(instances == i_lb, 1, 0))
+                target = downsample(np.where(instances == i_lb, 1, 0), DOWNSAMPLE)
+                targets.append(target)
                 # generate positive/negative guidance
                 fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, targets[i], np.zeros(targets[i].shape))
                 fneg_guidances.append(fneg_guidance)
@@ -173,7 +178,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                         prediction = model.forward(model_input)
                 prediction = prediction.cpu()
                 np_prediction = prediction.detach().numpy()
-                np_prediction = np.where(np_prediction > 0.5, 1, 0)
+                np_prediction = np.where(np_prediction >= 0.5, 1, 0)
                         
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
@@ -204,7 +209,7 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     max_interactions = 10 # number of max interactions
-    model = UNet(base=5)
+    model = UNet(base=BASE)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
@@ -215,7 +220,7 @@ def main() -> None:
 
     log(2, "TRAINING - interactive segmentation of rgbd images", logger.GREEN)
     epoch = 1
-    best_miou = 0
+    best_miou = -1
     mls = []
     mpas = []
     mious = []
@@ -226,7 +231,7 @@ def main() -> None:
         # training
         dataset = os.path.join("dataset", "train")
         model.train()
-        loss = run(model, optimizer, max_interactions, dataset, 32, TRAIN)
+        loss = run(model, optimizer, max_interactions, dataset, BATCH_SIZE, TRAIN)
         ml = loss.sum() / loss.shape[0]
         log(2, "Loss (SUM): {}".format(loss.sum()))
         log(2, "Loss (AVG): {}".format(loss.sum()/loss.shape[0]))
@@ -235,7 +240,7 @@ def main() -> None:
         log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
         dataset = os.path.join("dataset", "val")
         model.eval()
-        accuracy = run(model, optimizer, max_interactions, dataset, 32, VALIDATE)
+        accuracy = run(model, optimizer, max_interactions, dataset, BATCH_SIZE, VALIDATE)
         accuracy = accuracy.T
         mpa = accuracy[0].sum() / accuracy[0].shape[0]
         miou = accuracy[1].sum() / accuracy[1].shape[0]
