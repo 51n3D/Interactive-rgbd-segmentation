@@ -127,9 +127,6 @@ class UNet(nn.Module):
         return x
 
     def backpropagation(self, prediction, target, optimizer):
-        target = target.reshape((target.shape[0], 1, target.shape[1], target.shape[2]))
-        target = torch.tensor(target, dtype=torch.float32)
-
         loss = self.dice_loss(prediction, target)
 
         optimizer.zero_grad()

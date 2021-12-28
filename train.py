@@ -15,7 +15,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 TRAIN = 0
-VALIDATE = 0
+VALIDATE = 1
 
 def total_instances(instances_files: list) -> int:
     count = 0
@@ -109,9 +109,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # get instance segmentation of image (to generate new dataset)
             instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
             # downsample data
-            image = down_sample(image, 4)
-            disparity = down_sample(disparity, 4)
-            instances = down_sample(instances, 4)
+            image = down_sample(image, 2)
+            disparity = down_sample(disparity, 2)
+            instances = down_sample(instances, 2)
             # label of each instance in the target image (0 - unlabled, -1 - license plate)
             instance_lbs = np.unique(instances)
             instance_lbs = instance_lbs[(instance_lbs != 0) | (instance_lbs != -1)]
@@ -130,9 +130,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 fneg_guidances.append(fneg_guidance)
                 fpos_guidances.append(fpos_guidance)
             # initialize batch shaped old interaction maps
-            targets = np.array(targets)
-            old_fneg_inters = np.full(targets.shape, 0)
-            old_fpos_inters = np.full(targets.shape, 0)
+            np_targets = np.array(targets)
+            old_fneg_inters = np.full(np_targets.shape, 0)
+            old_fpos_inters = np.full(np_targets.shape, 0)
             for current_inter in range(max_interactions):
                 data = []
                 for b in range(batch.shape[0]):
@@ -160,23 +160,25 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 # push data to device
                 data = data.reshape((data.shape[0], data.shape[3], data.shape[1], data.shape[2]))
                 model_input = torch.tensor(data, dtype=torch.float32).to(device)
+                targets = np_targets.reshape((np_targets.shape[0], 1, np_targets.shape[1], np_targets.shape[2]))
+                targets = torch.tensor(targets, dtype=torch.float32)
                 if process_type == TRAIN:
                     prediction = model.forward(model_input)
                 elif process_type == VALIDATE:
                     with torch.no_grad():
                         prediction = model.forward(model_input)
                 prediction = prediction.cpu()
-                prediction.detach().numpy()
+                np_prediction = prediction.detach().numpy()
                         
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
-                    fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, targets[b], prediction[b][0])
+                    fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, np_targets[b], np_prediction[b][0])
                     fneg_guidances[b] = fneg_guidance
                     fpos_guidances[b] = fpos_guidance
                     # calculate validation metrics
                     if process_type == VALIDATE:
-                        pa = pixel_accuracy(targets[b], prediction[b][0])
-                        iou = intersection_over_union(targets[b], prediction[b][0])
+                        pa = pixel_accuracy(np_targets[b], np_prediction[b][0])
+                        iou = intersection_over_union(np_targets[b], np_prediction[b][0])
                         out.append([pa, iou])
                 # calculate training metric
                 if process_type == TRAIN:
@@ -194,7 +196,7 @@ def main() -> None:
     log(2, "")
     torch.cuda.empty_cache()
     max_interactions = 10 # number of max interactions
-    model = UNet(base=6)
+    model = UNet(base=2)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
