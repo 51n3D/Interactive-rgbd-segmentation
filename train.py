@@ -136,7 +136,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 data = []
                 for b in range(batch.shape[0]):
                     # generate intensity map for positive/negative click
-                    print(fneg_guidances[b], fpos_guidances[b])
+                    #print(fneg_guidances[b], fpos_guidances[b])
                     w = (max_interactions - current_inter) / max_interactions # weight of click linearly decrease with number of interactions
                     fneg_interactions = (fneg_guidances[b] / fneg_guidances[b].max()) * w          \
                         if fneg_guidances[b].max() > 0 or fneg_guidances[b].max() is not None      \
