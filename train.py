@@ -213,10 +213,21 @@ def main() -> None:
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
-    best_model_path = os.path.join("best_model", "InteractiveModel.pth")
-    mean_losses_path = os.path.join("training_data", "mean_losses")
-    mean_pixel_acc_path = os.path.join("training_data", "mean_pixel_acc")
-    mean_iou_path = os.path.join("training_data", "mean_iou")
+    import sys
+    if len(sys.argv) > 2:
+        best_model = os.path.join(sys.argv[2], "best_model")
+        training_data = os.path.join(sys.argv[2], "training_data")
+    else:
+        best_model = "best_model"
+        training_data = "training_data"
+
+    log(2, "Training data path: {}".format(training_data))
+    log(2, "Best model path: {}".format(best_model))
+
+    best_model_path = os.path.join(best_model, "InteractiveModel.pth")
+    mean_losses_path = os.path.join(training_data, "mean_losses")
+    mean_pixel_acc_path = os.path.join(training_data, "mean_pixel_acc")
+    mean_iou_path = os.path.join(training_data, "mean_iou")
 
     log(2, "TRAINING - interactive segmentation of rgbd images", logger.GREEN)
     epoch = 1
@@ -228,8 +239,14 @@ def main() -> None:
         log(2, "")
         log(2, "Epoch " + str(epoch), logger.BLUE)
 
+        if len(sys.argv) > 1:
+            dataset = os.path.join(sys.argv[1], "dataset")
+        else:
+            dataset = "dataset"
+
         # training
-        dataset = os.path.join("dataset", "train")
+        dataset = os.path.join(dataset, "train")
+        log(2, "Dataset path: {}".format(dataset))
         model.train()
         loss = run(model, optimizer, max_interactions, dataset, BATCH_SIZE, TRAIN)
         ml = loss.sum() / loss.shape[0]
