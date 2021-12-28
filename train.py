@@ -56,8 +56,7 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
 
 def pixel_accuracy(target: np.ndarray, prediction: np.ndarray) -> np.float32:
     error = np.abs(target - prediction).sum()
-    full = np.prod(target.shape).astype(np.float32)
-    return (full - error.sum()) / full 
+    return error.sum() / np.prod(target.shape).astype(np.float32)
      
 
 def intersection_over_union(target: np.ndarray, prediction: np.ndarray) -> np.float32:
@@ -109,9 +108,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # get instance segmentation of image (to generate new dataset)
             instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
             # downsample data
-            image = down_sample(image, 2)
-            disparity = down_sample(disparity, 2)
-            instances = down_sample(instances, 2)
+            image = down_sample(image, 4)
+            disparity = down_sample(disparity, 4)
+            instances = down_sample(instances, 4)
             # label of each instance in the target image (0 - unlabled, -1 - license plate)
             instance_lbs = np.unique(instances)
             instance_lbs = instance_lbs[(instance_lbs != 0) | (instance_lbs != -1)]
@@ -137,9 +136,14 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 data = []
                 for b in range(batch.shape[0]):
                     # generate intensity map for positive/negative click
+                    print(fneg_guidances[b], fpos_guidances[b])
                     w = (max_interactions - current_inter) / max_interactions # weight of click linearly decrease with number of interactions
-                    fneg_interactions = (fneg_guidances[b] / fneg_guidances[b].max()) * w if fneg_guidances[b].max() > 0 else fneg_guidances[b] # normalize to <0, 1>
-                    fpos_interactions = (fpos_guidances[b] / fpos_guidances[b].max()) * w if fpos_guidances[b].max() > 0 else fpos_guidances[b] # normalize to <0, 1>
+                    fneg_interactions = (fneg_guidances[b] / fneg_guidances[b].max()) * w          \
+                        if fneg_guidances[b].max() > 0 or fneg_guidances[b].max() is not None      \
+                        else np.zeros(targets[b.shape]) # normalize to <0, 1>
+                    fpos_interactions = (fpos_guidances[b] / fpos_guidances[b].max()) * w          \
+                        if fpos_guidances[b].max() > 0 or fpos_guidances[b].max() is not None      \
+                        else np.zeros(targets[b.shape]) # normalize to <0, 1>              
                     # update new interaction map with old interactions
                     fneg_interactions += old_fneg_inters[b]
                     fpos_interactions += old_fpos_inters[b]
@@ -175,18 +179,19 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, np_targets[b], np_prediction[b][0])
                     fneg_guidances[b] = fneg_guidance
                     fpos_guidances[b] = fpos_guidance
-                    # calculate validation metrics
-                    if process_type == VALIDATE:
-                        pa = pixel_accuracy(np_targets[b], np_prediction[b][0])
-                        iou = intersection_over_union(np_targets[b], np_prediction[b][0])
-                        out.append([pa, iou])
-                # calculate training metric
-                if process_type == TRAIN:
-                    # Calculate loss and backpropate
-                    out.append(model.backpropagation(prediction, targets, optimizer))
-                torch.cuda.empty_cache()
-                # show_target_and_prediction_image(prediction, target)
                 progress_bar.update(1)
+            # calculate validation metrics
+            if process_type == VALIDATE:
+                for b in range(batch.shape[0]):
+                    pa = pixel_accuracy(np_targets[b], np_prediction[b][0])
+                    iou = intersection_over_union(np_targets[b], np_prediction[b][0])
+                    out.append([pa, iou])
+            # calculate training metric
+            if process_type == TRAIN:
+                # Calculate loss and backpropate
+                out.append(model.backpropagation(prediction, targets, optimizer).detach().numpy())
+            torch.cuda.empty_cache()
+            # show_target_and_prediction_image(prediction, target)  
         progress_bar.close()
     return np.array(out)
 
@@ -195,7 +200,7 @@ def main() -> None:
     log(2, "Device - {}".format(device), logger.RED)
     log(2, "")
     torch.cuda.empty_cache()
-    max_interactions = 10 # number of max interactions
+    max_interactions = 3 # number of max interactions
     model = UNet(base=2)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
@@ -218,7 +223,7 @@ def main() -> None:
         # training
         dataset = os.path.join("dataset", "train")
         model.train()
-        loss = run(model, optimizer, max_interactions, dataset, 16, TRAIN)
+        loss = run(model, optimizer, max_interactions, dataset, 4, TRAIN)
         ml = loss.sum() / loss.shape[0]
         log(2, "Loss (SUM): {}".format(loss.sum()))
         log(2, "Loss (AVG): {}".format(loss.sum()/loss.shape[0]))
@@ -227,11 +232,10 @@ def main() -> None:
         log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
         dataset = os.path.join("dataset", "val")
         model.eval()
-        accuracy = run(model, optimizer, max_interactions, dataset, 16, VALIDATE)
+        accuracy = run(model, optimizer, max_interactions, dataset, 4, VALIDATE)
         accuracy = accuracy.T
         mpa = accuracy[0].sum() / accuracy[0].shape[0]
         miou = accuracy[1].sum() / accuracy[1].shape[0]
-        log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
         log(2, "Mean Pixel Accuracy: {}".format(mpa))
         log(2, "Mean Intersection Over Union: {}".format(miou))
 
