@@ -11,8 +11,8 @@ import os
 import logger
 from logger import log
 
-BASE = 2
-BATCH_SIZE = 4
+BASE = 5
+BATCH_SIZE = 8
 DOWNSAMPLE = 4
 
 
@@ -212,14 +212,14 @@ def main() -> None:
         best_model = "best_model"
         training_data = "training_data"
     best_model_path = os.path.join(best_model, "InteractiveModel.pth")
+    last_model_path = os.path.join(training_data, "LastModel.pth")
     mean_losses_path = os.path.join(training_data, "mean_losses.npy")
     mean_pixel_acc_path = os.path.join(training_data, "mean_pixel_acc.npy")
     mean_iou_path = os.path.join(training_data, "mean_iou.npy")
     
     log(2, "Training data path: {}".format(training_data))
     log(2, "Best model path: {}".format(best_model))
-    
-    
+    log(2, "")
     log(2, "Device - {}".format(device), logger.RED)
     log(2, "")
     if torch.cuda.is_available():
@@ -227,9 +227,9 @@ def main() -> None:
     max_interactions = 10 # number of max interactions
     model = UNet(base=BASE)
     
-    if (os.path.exists(best_model_path)):
-        model.load_state_dict(torch.load(best_model_path))
-    else:
+    if os.path.exists(last_model_path):
+        model.load_state_dict(torch.load(last_model_path))
+    if not os.path.exists(best_model):
         os.makedirs(best_model)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
@@ -289,7 +289,8 @@ def main() -> None:
         if (miou > best_miou):
             best_miou = miou
             torch.save(model.state_dict(), best_model_path)
-
+        torch.save(model.state_dict(), last_model_path)
+        
         epoch += 1
 
 
