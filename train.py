@@ -11,8 +11,8 @@ import os
 import logger
 from logger import log
 
-BASE = 5
-BATCH_SIZE = 8
+BASE = 2
+BATCH_SIZE = 4
 DOWNSAMPLE = 4
 
 
@@ -61,7 +61,8 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
 
 def pixel_accuracy(target: np.ndarray, prediction: np.ndarray) -> np.float32:
     error = np.abs(target - prediction).sum()
-    return (1 - error.sum()) / np.prod(target.shape).astype(np.float32)
+    full = np.prod(target.shape).astype(np.float32)
+    return (full - error.sum()) / full
      
 
 def intersection_over_union(target: np.ndarray, prediction: np.ndarray) -> np.float32:
@@ -195,7 +196,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
-                #print(prediction)
+                print(prediction)
                 out.append(model.backpropagation(prediction, targets, optimizer).detach().numpy())
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
