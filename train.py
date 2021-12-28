@@ -11,8 +11,8 @@ import os
 import logger
 from logger import log
 
-BASE = 2
-BATCH_SIZE = 4
+BASE = 5
+BATCH_SIZE = 8
 DOWNSAMPLE = 4
 
 
