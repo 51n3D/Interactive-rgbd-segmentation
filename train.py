@@ -95,11 +95,11 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
         instances_files = np.array(glob.glob(os.path.join(city_dir, "*" + instances_ending + ".png")))
         disparity_files = np.array(glob.glob(os.path.join(city_dir, "*" + disparity_ending + ".png")))
         image_files = np.array(glob.glob(os.path.join(city_dir, "*" + image_ending + ".png")))
-        # setup progress bar
-        progress_bar = tqdm.tqdm(total=batch_size, ncols=100)
         # select random batch
         n = batch_size if batch_size < instances_files.shape[0] else instances_files.shape[0] - 1
         batch = np.random.choice(instances_files.shape[0], n, replace=False)
+        # setup progress bar
+        progress_bar = tqdm.tqdm(total=n*max_interactions, ncols=100)
         for image_file, instances_file, disparity_file in zip(image_files[batch], instances_files[batch], disparity_files[batch]):
             image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED).astype(np.float32) # rgb
             # convert disparity to depth map
