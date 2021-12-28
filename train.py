@@ -111,7 +111,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             #disparity[disparity > 0] = (disparity[disparity > 0] - 1.) / 256.
             #depth = (0.209313 * 2262.52) / disparity
             # get instance segmentation of image (to generate new dataset)
-            instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.unit8)
+            instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.uint8)
             # downsample data
             image = downsample(image, DOWNSAMPLE)
             disparity = downsample(disparity, DOWNSAMPLE)
