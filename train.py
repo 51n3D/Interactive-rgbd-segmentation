@@ -61,7 +61,7 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
 
 def pixel_accuracy(target: np.ndarray, prediction: np.ndarray) -> np.float32:
     error = np.abs(target - prediction).sum()
-    return error.sum() / np.prod(target.shape).astype(np.float32)
+    return (1 - error.sum()) / np.prod(target.shape).astype(np.float32)
      
 
 def intersection_over_union(target: np.ndarray, prediction: np.ndarray) -> np.float32:
@@ -195,6 +195,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
+                print(prediction)
                 out.append(model.backpropagation(prediction, targets, optimizer).detach().numpy())
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
