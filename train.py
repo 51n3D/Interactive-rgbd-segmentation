@@ -108,9 +108,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # get instance segmentation of image (to generate new dataset)
             instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
             # downsample data
-            image = down_sample(image, 4)
-            disparity = down_sample(disparity, 4)
-            instances = down_sample(instances, 4)
+            image = down_sample(image, 2)
+            disparity = down_sample(disparity, 2)
+            instances = down_sample(instances, 2)
             # label of each instance in the target image (0 - unlabled, -1 - license plate)
             instance_lbs = np.unique(instances)
             instance_lbs = instance_lbs[(instance_lbs != 0) | (instance_lbs != -1)]
@@ -139,15 +139,15 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     #print(fneg_guidances[b], fpos_guidances[b])
                     w = (max_interactions - current_inter) / max_interactions # weight of click linearly decrease with number of interactions
                     fneg_interactions = (fneg_guidances[b] / fneg_guidances[b].max()) * w          \
-                        if fneg_guidances[b].max() > 0 or fneg_guidances[b].max() is not None      \
-                        else np.zeros(targets[b.shape]) # normalize to <0, 1>
+                        if fneg_guidances[b].max() > 0                                             \
+                        else np.zeros(np_targets[b].shape) # normalize to <0, 1>
                     fpos_interactions = (fpos_guidances[b] / fpos_guidances[b].max()) * w          \
-                        if fpos_guidances[b].max() > 0 or fpos_guidances[b].max() is not None      \
-                        else np.zeros(targets[b.shape]) # normalize to <0, 1>              
+                        if fpos_guidances[b].max() > 0                                             \
+                        else np.zeros(np_targets[b].shape) # normalize to <0, 1>
                     # update new interaction map with old interactions
                     fneg_interactions += old_fneg_inters[b]
                     fpos_interactions += old_fpos_inters[b]
-                    if fneg_guidance.max() > 0:
+                    if fneg_interactions.max() > 0:
                         fneg_interactions /= fneg_interactions.max() # normalize back to <0, 1>
                     if fpos_interactions.max() > 0:
                         fpos_interactions /= fpos_interactions.max() # normalize back to <0, 1>
@@ -191,7 +191,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             if process_type == TRAIN:
                 # Calculate loss and backpropate
                 out.append(model.backpropagation(prediction, targets, optimizer).detach().numpy())
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             # show_target_and_prediction_image(prediction, target)  
         progress_bar.close()
     return np.array(out)
@@ -200,9 +201,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
 def main() -> None:
     log(2, "Device - {}".format(device), logger.RED)
     log(2, "")
-    torch.cuda.empty_cache()
-    max_interactions = 3 # number of max interactions
-    model = UNet(base=2)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    max_interactions = 10 # number of max interactions
+    model = UNet(base=5)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
@@ -224,7 +226,7 @@ def main() -> None:
         # training
         dataset = os.path.join("dataset", "train")
         model.train()
-        loss = run(model, optimizer, max_interactions, dataset, 4, TRAIN)
+        loss = run(model, optimizer, max_interactions, dataset, 32, TRAIN)
         ml = loss.sum() / loss.shape[0]
         log(2, "Loss (SUM): {}".format(loss.sum()))
         log(2, "Loss (AVG): {}".format(loss.sum()/loss.shape[0]))
@@ -233,7 +235,7 @@ def main() -> None:
         log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
         dataset = os.path.join("dataset", "val")
         model.eval()
-        accuracy = run(model, optimizer, max_interactions, dataset, 4, VALIDATE)
+        accuracy = run(model, optimizer, max_interactions, dataset, 32, VALIDATE)
         accuracy = accuracy.T
         mpa = accuracy[0].sum() / accuracy[0].shape[0]
         miou = accuracy[1].sum() / accuracy[1].shape[0]
