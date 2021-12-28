@@ -11,8 +11,8 @@ import os
 import logger
 from logger import log
 
-BASE = 5
-BATCH_SIZE = 8
+BASE = 2
+BATCH_SIZE = 4
 DOWNSAMPLE = 4
 
 
@@ -204,15 +204,6 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
 
         
 def main() -> None:
-    log(2, "Device - {}".format(device), logger.RED)
-    log(2, "")
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    max_interactions = 10 # number of max interactions
-    model = UNet(base=BASE)
-    model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
-
     import sys
     if len(sys.argv) > 2:
         best_model = os.path.join(sys.argv[2], "best_model")
@@ -220,17 +211,34 @@ def main() -> None:
     else:
         best_model = "best_model"
         training_data = "training_data"
-
+    best_model_path = os.path.join(best_model, "InteractiveModel.pth")
+    mean_losses_path = os.path.join(training_data, "mean_losses.npy")
+    mean_pixel_acc_path = os.path.join(training_data, "mean_pixel_acc.npy")
+    mean_iou_path = os.path.join(training_data, "mean_iou.npy")
+    
     log(2, "Training data path: {}".format(training_data))
     log(2, "Best model path: {}".format(best_model))
-
-    best_model_path = os.path.join(best_model, "InteractiveModel.pth")
-    mean_losses_path = os.path.join(training_data, "mean_losses")
-    mean_pixel_acc_path = os.path.join(training_data, "mean_pixel_acc")
-    mean_iou_path = os.path.join(training_data, "mean_iou")
-
+    
+    
+    log(2, "Device - {}".format(device), logger.RED)
+    log(2, "")
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    max_interactions = 10 # number of max interactions
+    model = UNet(base=BASE)
+    
+    if (os.path.exists(best_model_path)):
+        model.load_state_dict(torch.load(best_model_path))
+    else:
+        os.makedirs(best_model)
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+    
+    if not os.path.exists(training_data):
+        os.makedirs(training_data)
+         
     log(2, "TRAINING - interactive segmentation of rgbd images", logger.GREEN)
-    epoch = 1
+    epoch = 1 if not os.path.exists(mean_losses_path) else np.load(mean_losses_path).shape[0] + 1
     best_miou = -1
     mls = []
     mpas = []
@@ -265,9 +273,15 @@ def main() -> None:
         log(2, "Mean Intersection Over Union: {}".format(miou))
 
         # save training info
-        mls.append(ml)
-        mpas.append(mpa)
-        mious.append(miou)
+        if os.path.exists(mean_losses_path):
+            mls = np.load(mean_losses_path)
+        if os.path.exists(mean_pixel_acc_path):
+            mpas = np.load(mean_pixel_acc_path)
+        if os.path.exists(mean_iou_path):
+            mious = np.load(mean_iou_path)
+        mls = np.append(ml, mls)
+        mpas = np.append(mpa, mpas)
+        mious = np.append(miou, mious)
         np.save(mean_losses_path, np.array(mls))
         np.save(mean_pixel_acc_path, np.array(mpas))
         np.save(mean_iou_path, np.array(mious))
