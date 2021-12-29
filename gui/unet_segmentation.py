@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 from segmentation_technique import SegmentationTechnique
-from config import IMAGE_SHAPE, GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA
+from config import IMAGE_SHAPE, GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA, UNET_BASE
 from unet import UNet
 
 
@@ -10,12 +10,16 @@ class UNetSegmentation(SegmentationTechnique):
     def __init__(self, image_file, disparity_file, model_pth):
         self.image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
         if self.image.shape != IMAGE_SHAPE:
-            self.image = cv2.resize(self.image, IMAGE_SHAPE, interpolation=cv2.INTER_CUBIC)
-        self.disparity = cv2.imread(disparity_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
-        if self.disparity.shape != IMAGE_SHAPE:
-            self.disparity = cv2.resize(self.disparity, IMAGE_SHAPE, interpolation=cv2.INTER_CUBIC)
+            self.image = cv2.resize(self.image, IMAGE_SHAPE, interpolation=cv2.INTER_NEAREST)
 
-        self.model = UNet(base=5)
+        self.disparity = cv2.imread(disparity_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
+        self.disparity /= self.disparity.max()
+        if self.disparity.shape != IMAGE_SHAPE:
+            self.disparity = cv2.resize(self.disparity, IMAGE_SHAPE, interpolation=cv2.INTER_NEAREST)
+
+        self.image /= 255
+
+        self.model = UNet(base=UNET_BASE)
         self.model.load_state_dict(torch.load(model_pth, map_location="cpu"))
         self.model.eval()
 
@@ -46,6 +50,8 @@ class UNetSegmentation(SegmentationTechnique):
             prediction = self.model.forward(model_input)
 
         np_prediction = prediction.detach().numpy()
+        cv2.imshow("debug_2", np_prediction[0][0])
+
         np_prediction = np.where(np_prediction > 0.5, 1, 0)
 
         return np_prediction[0][0]
