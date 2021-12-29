@@ -12,8 +12,8 @@ import logger
 from logger import log
 
 MAX_INTERACTIONS = 3
-BASE = 5
-BATCH_SIZE = 8
+BASE = 2
+BATCH_SIZE = 4
 DOWNSAMPLE = 4
 
 SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
@@ -151,7 +151,6 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             np_targets = np.array(targets)
             old_fneg_inters = np.full(np_targets.shape, 0)
             old_fpos_inters = np.full(np_targets.shape, 0)
-            cv2.imshow("target", (255 * targets[0]).astype(np.uint8))
             for current_inter in range(max_interactions):
                 data = []
                 for b in range(batch.shape[0]):
@@ -211,6 +210,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
+                print(prediction)
                 loss = model.backpropagation(prediction, targets, optimizer).detach().numpy()
                 out.append(loss)
                 progress_bar.set_postfix({'loss (batch)': loss})
