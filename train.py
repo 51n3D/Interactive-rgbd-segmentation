@@ -11,10 +11,12 @@ import os
 import logger
 from logger import log
 
+MAX_INTERACTIONS = 3
 BASE = 5
 BATCH_SIZE = 8
 DOWNSAMPLE = 4
 
+SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -22,12 +24,22 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 TRAIN = 0
 VALIDATE = 1
 
+
+def filter_labels(labels, classes):
+    # single occurred labeled instance in the image
+    single_filtered = labels[labels < 1000][np.in1d(labels[labels < 1000], classes)]
+    # multiple occurred labeled instances in the image
+    multiple_normalized = np.floor(labels[labels > 1000] / 1000)
+    multiple_filtered = labels[labels > 1000][np.in1d(multiple_normalized, classes)]
+    # append together and return
+    return np.append([single_filtered], [multiple_filtered])
+
+
 def total_instances(instances_files: list) -> int:
     count = 0
     for instances_file in instances_files:
         instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
-        labels = np.unique(instances)
-        count += labels[(labels != 0) | (labels != -1)].shape[0]
+        count += filter_labels(np.unique(instances), SINGLE_INSTANCE_LABELS).shape[0]
     return count
 
 
@@ -48,8 +60,10 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
     false_neg = np.where(error > 0)
     false_pos = np.where(error < 0)
     # calculate distance transform of false negative/positive pixels
-    chamfer_fneg = distance_map(target.shape, false_neg)
-    chamfer_fpos = distance_map(target.shape, false_pos)
+    chamfer_fneg = distance_map(target.shape, false_neg) \
+        if false_neg[0].shape > false_pos[0].shape else np.zeros(target.shape)
+    chamfer_fpos = distance_map(target.shape, false_pos) \
+        if false_pos[0].shape > false_neg[0].shape else np.zeros(target.shape)
     # prevent owerflow
     if chamfer_fneg.max() > 700:
         chamfer_fneg = chamfer_fneg / chamfer_fneg.max() * 700
@@ -112,13 +126,12 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             #disparity[disparity > 0] = (disparity[disparity > 0] - 1.) / 256.
             #depth = (0.209313 * 2262.52) / disparity
             # get instance segmentation of image (to generate new dataset)
-            instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.uint8)
+            instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.uint32)
             # downsample data
             image = downsample(image, DOWNSAMPLE)
             disparity = downsample(disparity, DOWNSAMPLE)
-            # label of each instance in the target image (0 - unlabled, -1 - license plate)
-            instance_lbs = np.unique(instances)
-            instance_lbs = instance_lbs[(instance_lbs != 0) | (instance_lbs != -1)]
+            # label of each instance in the target image (filter single instance labels only)
+            instance_lbs = filter_labels(np.unique(instances), SINGLE_INSTANCE_LABELS)
             # select random batch
             n = batch_size if batch_size < instance_lbs.shape[0] else instance_lbs.shape[0] - 1
             batch = np.random.choice(instance_lbs.shape[0], n, replace=False)
@@ -138,6 +151,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             np_targets = np.array(targets)
             old_fneg_inters = np.full(np_targets.shape, 0)
             old_fpos_inters = np.full(np_targets.shape, 0)
+            cv2.imshow("target", (255 * targets[0]).astype(np.uint8))
             for current_inter in range(max_interactions):
                 data = []
                 for b in range(batch.shape[0]):
@@ -145,11 +159,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     #print(fneg_guidances[b], fpos_guidances[b])
                     w = (max_interactions - current_inter) / max_interactions # weight of click linearly decrease with number of interactions
                     fneg_interactions = (fneg_guidances[b] / fneg_guidances[b].max()) * w          \
-                        if fneg_guidances[b].max() > 0                                             \
-                        else np.zeros(np_targets[b].shape) # normalize to <0, 1>
+                        if fneg_guidances[b].max() > 0 else np.zeros(np_targets[b].shape) # normalize to <0, 1> with weight
                     fpos_interactions = (fpos_guidances[b] / fpos_guidances[b].max()) * w          \
-                        if fpos_guidances[b].max() > 0                                             \
-                        else np.zeros(np_targets[b].shape) # normalize to <0, 1>
+                        if fpos_guidances[b].max() > 0 else np.zeros(np_targets[b].shape) # normalize to <0, 1> with weight
                     # update new interaction map with old interactions
                     fneg_interactions += old_fneg_inters[b]
                     fpos_interactions += old_fpos_inters[b]
@@ -159,6 +171,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                         fpos_interactions /= fpos_interactions.max() # normalize back to <0, 1>
                     # build 6 channel image for training (rgbdpn)
                     data.append(np.dstack((image, disparity, fneg_interactions, fpos_interactions)))
+                    # update save interactions
+                    old_fneg_inters[b] = fneg_interactions
+                    old_fpos_inters[b] = fpos_interactions
                 data = np.array(data)
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
@@ -179,8 +194,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                         prediction = model.forward(model_input)
                 prediction = prediction.cpu()
                 np_prediction = prediction.detach().numpy()
-                np_prediction = np.where(np_prediction >= 0.5, 1, 0)
-                        
+                np_prediction = np.where(np_prediction >= 0.5, 1, 0)     
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
                     fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, np_targets[b], np_prediction[b][0])
@@ -196,7 +210,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
-                #print(prediction)
+                print(prediction)
                 out.append(model.backpropagation(prediction, targets, optimizer).detach().numpy())
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -226,7 +240,7 @@ def main() -> None:
     log(2, "")
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    max_interactions = 10 # number of max interactions
+    max_interactions = MAX_INTERACTIONS # number of max interactions
     model = UNet(base=BASE)
     
     if os.path.exists(last_model_path):
@@ -234,7 +248,7 @@ def main() -> None:
     if not os.path.exists(best_model):
         os.makedirs(best_model)
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
     if not os.path.exists(training_data):
         os.makedirs(training_data)
