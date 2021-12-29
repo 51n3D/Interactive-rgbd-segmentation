@@ -12,8 +12,8 @@ import logger
 from logger import log
 
 MAX_INTERACTIONS = 3
-BASE = 2
-BATCH_SIZE = 8
+BASE = 3
+BATCH_SIZE = 4
 DOWNSAMPLE = 4
 
 SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
@@ -123,12 +123,14 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED).astype(np.float32) # rgb
             # convert disparity to depth map
             disparity = cv2.imread(disparity_file, cv2.IMREAD_UNCHANGED).astype(np.float32) # disparity map
+            disparity /= disparity.max()
             #disparity[disparity > 0] = (disparity[disparity > 0] - 1.) / 256.
             #depth = (0.209313 * 2262.52) / disparity
             # get instance segmentation of image (to generate new dataset)
             instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.uint32)
             # downsample data
             image = downsample(image, DOWNSAMPLE)
+            image /= 255.0
             disparity = downsample(disparity, DOWNSAMPLE)
             # label of each instance in the target image (filter single instance labels only)
             instance_lbs = filter_labels(np.unique(instances), SINGLE_INSTANCE_LABELS)
