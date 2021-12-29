@@ -136,7 +136,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 progress_bar.update(MAX_INTERACTIONS)
                 continue
             # select random batch
-            n = batch_size if batch_size < instance_lbs.shape[0] else instance_lbs.shape[0] - 1
+            n = batch_size if batch_size < instance_lbs.shape[0] else instance_lbs.shape[0]
             batch = np.random.choice(instance_lbs.shape[0], n, replace=False)
             targets = []
             fpos_guidances = []
@@ -177,6 +177,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     old_fneg_inters[b] = fneg_interactions
                     old_fpos_inters[b] = fpos_interactions
                 data = np.array(data)
+                print(data.shape)
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
