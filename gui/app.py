@@ -13,6 +13,7 @@ class InteractiveApp:
         self.win_name = "main"
         cv2.namedWindow(self.win_name)
         cv2.setMouseCallback(self.win_name, self.mouse_callback)
+        cv2.setWindowTitle(self.win_name, "Interactive RGB-D segmentation")
 
         self.img = None
         self.mask = None
