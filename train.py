@@ -11,7 +11,7 @@ import os
 import logger
 from logger import log
 
-MAX_INTERACTIONS = 3
+MAX_INTERACTIONS = 10
 BASE = 3
 BATCH_SIZE = 4
 DOWNSAMPLE = 4
@@ -54,7 +54,35 @@ def distance_map(shape: tuple, marked_pixels: tuple) -> np.ndarray:
     return cv2.distanceTransform(map, cv2.DIST_L2, cv2.DIST_MASK_3)
 
 
-def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -> tuple:
+# def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -> tuple:
+#     # get indices of false negative/positive pixels
+#     error = target - prediction
+#     false_neg = np.where(error > 0)
+#     false_pos = np.where(error < 0)
+#     # calculate distance transform of false negative/positive pixels
+#     chamfer_fneg = distance_map(target.shape, false_neg) \
+#         if false_neg[0].shape > false_pos[0].shape else np.zeros(target.shape)
+#     chamfer_fpos = distance_map(target.shape, false_pos) \
+#         if false_pos[0].shape > false_neg[0].shape else np.zeros(target.shape)
+#     # prevent owerflow
+#     if chamfer_fneg.max() > 700:
+#         chamfer_fneg = chamfer_fneg / chamfer_fneg.max() * 700
+#     if chamfer_fpos.max() > 700:
+#         chamfer_fpos = chamfer_fpos / chamfer_fpos.max() * 700
+#     # return converted distance maps to probabilty maps
+#     return np.expm1(chamfer_fneg.astype(np.float64)), np.expm1(chamfer_fpos.astype(np.float64))
+
+
+def dist_to_guidance(chamfer_dist: np.ndarray) -> np.ndarray:
+    guidance = np.zeros(chamfer_dist.shape)
+    if chamfer_dist.max() == 0:
+        return guidance
+    guidance[np.unravel_index(np.argmax(chamfer_dist), chamfer_dist.shape)] = 1
+    guidance = cv2.GaussianBlur(guidance, (9, 9), 2)
+    return guidance / guidance.max()
+
+
+def guidance_signal_tr(target: np.ndarray, prediction: np.ndarray) -> tuple:
     # get indices of false negative/positive pixels
     error = target - prediction
     false_neg = np.where(error > 0)
@@ -66,11 +94,13 @@ def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -
         if false_pos[0].shape > false_neg[0].shape else np.zeros(target.shape)
     # prevent owerflow
     if chamfer_fneg.max() > 700:
-        chamfer_fneg = chamfer_fneg / chamfer_fneg.max() * 700
+        chamfer_fneg = chamfer_fneg / chamfer_fneg.max() * 5000
     if chamfer_fpos.max() > 700:
-        chamfer_fpos = chamfer_fpos / chamfer_fpos.max() * 700
-    # return converted distance maps to probabilty maps
-    return np.expm1(chamfer_fneg.astype(np.float64)), np.expm1(chamfer_fpos.astype(np.float64))
+        chamfer_fpos = chamfer_fpos / chamfer_fpos.max() * 5000
+    # convert distance maps to guidance signal
+    positive_click = dist_to_guidance(chamfer_fneg) # positive click
+    negative_click = dist_to_guidance(chamfer_fpos) # negative click
+    return positive_click, negative_click
 
 
 def pixel_accuracy(target: np.ndarray, prediction: np.ndarray) -> np.float32:
@@ -149,36 +179,38 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 target = downsample(np.where(instances == i_lb, 1, 0), DOWNSAMPLE)
                 targets.append(target)
                 # generate positive/negative guidance
-                fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, targets[i], np.zeros(targets[i].shape))
-                fneg_guidances.append(fneg_guidance)
-                fpos_guidances.append(fpos_guidance)
+                fneg_guidance, fpos_guidance = guidance_signal_tr(targets[i], np.zeros(targets[i].shape))
+                fneg_guidances.append(fneg_guidance.astype(np.float32))
+                fpos_guidances.append(fpos_guidance.astype(np.float32))
             # initialize batch shaped old interaction maps
             np_targets = np.array(targets)
-            old_fneg_inters = np.full(np_targets.shape, 0)
-            old_fpos_inters = np.full(np_targets.shape, 0)
+            old_fneg_guidances = np.full(np_targets.shape, 0, dtype=np.float32)
+            old_fpos_guidances = np.full(np_targets.shape, 0, dtype=np.float32)
             for current_inter in range(max_interactions):
                 data = []
                 for b in range(batch.shape[0]):
                     # generate intensity map for positive/negative click
-                    #print(fneg_guidances[b], fpos_guidances[b])
-                    w = (max_interactions - current_inter) / max_interactions # weight of click linearly decrease with number of interactions
-                    fneg_interactions = (fneg_guidances[b] / fneg_guidances[b].max()) * w          \
-                        if fneg_guidances[b].max() > 0 else np.zeros(np_targets[b].shape) # normalize to <0, 1> with weight
-                    fpos_interactions = (fpos_guidances[b] / fpos_guidances[b].max()) * w          \
-                        if fpos_guidances[b].max() > 0 else np.zeros(np_targets[b].shape) # normalize to <0, 1> with weight
+                    w = (max_interactions - current_inter) / float(max_interactions) # weight of click linearly decrease with number of interactions
+                    fneg_guidances[b] *= w # weight interaction
+                    fpos_guidances[b] *= w # weight interaction
                     # update new interaction map with old interactions
-                    fneg_interactions += old_fneg_inters[b]
-                    fpos_interactions += old_fpos_inters[b]
-                    if fneg_interactions.max() > 0:
-                        fneg_interactions /= fneg_interactions.max() # normalize back to <0, 1>
-                    if fpos_interactions.max() > 0:
-                        fpos_interactions /= fpos_interactions.max() # normalize back to <0, 1>
-                    # build 6 channel image for training (rgbdpn)
-                    data.append(np.dstack((image, disparity, fneg_interactions, fpos_interactions)))
-                    # update save interactions
-                    old_fneg_inters[b] = fneg_interactions
-                    old_fpos_inters[b] = fpos_interactions
+                    fneg_guidances[b] += old_fneg_guidances[b]
+                    fpos_guidances[b] += old_fpos_guidances[b]
+                    #normalize to (0, 1>
+                    if fneg_guidances[b].max() > 0:
+                        fneg_guidances[b] /= fneg_guidances[b].max()
+                    if fpos_guidances[b].max() > 0:
+                        fpos_guidances[b] /= fpos_guidances[b].max()
+                    #build 6 channel image for training (rgbdpn)
+                    data.append(np.dstack((image, disparity, fneg_guidances[b], fpos_guidances[b])))
+                    # update old guidances
+                    old_fneg_guidances[b] = fneg_guidances[b].copy()
+                    old_fpos_guidances[b] = fpos_guidances[b].copy()
                 data = np.array(data)
+                # cv2.imshow("rgb", (data[0,:,:,0:3] * 255).astype(np.uint8))
+                # cv2.imshow("disparity", (data[0,:,:,3] * 255).astype(np.uint8))
+                # cv2.imshow("positive", (data[0,:,:,4] * 255).astype(np.uint8))
+                # cv2.imshow("negative", (data[0,:,:,5] * 255).astype(np.uint8))
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -198,13 +230,17 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                         prediction = model.forward(model_input)
                 prediction = prediction.cpu()
                 np_prediction = prediction.detach().numpy()
-                np_prediction = np.where(np_prediction >= 0.5, 1, 0)     
+                #cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
+                np_prediction = np.where(np_prediction >= 0.5, 1, 0)
+                #cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
+                
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
-                    fneg_guidance, fpos_guidance = guidance_signal_tr(i_lb, np_targets[b], np_prediction[b][0])
-                    fneg_guidances[b] = fneg_guidance
-                    fpos_guidances[b] = fpos_guidance
+                    fneg_guidance, fpos_guidance = guidance_signal_tr(np_targets[b], np_prediction[b][0])
+                    fneg_guidances[b] = fneg_guidance.astype(np.float64)
+                    fpos_guidances[b] = fpos_guidance.astype(np.float64)
                 progress_bar.update(1)
+                cv2.waitKey()
             # calculate validation metrics
             if process_type == VALIDATE:
                 for b in range(batch.shape[0]):
