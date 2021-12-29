@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import numpy as np
 from config import IMAGE_SHAPE
@@ -6,7 +7,7 @@ from unet_segmentation import UNetSegmentation
 
 
 class InteractiveApp:
-    def __init__(self, path, segmentation_technique: SegmentationTechnique):
+    def __init__(self, path, segmentation_technique: SegmentationTechnique, debug_mode=False):
         self.segmentation_technique = segmentation_technique
 
         self.win_name = "main"
@@ -22,6 +23,8 @@ class InteractiveApp:
         self.pos_interactions = ([], [])
         self.neg_interactions = ([], [])
 
+        self.debug_mode = debug_mode
+
     def run(self):
         while True:
             if self.need_update:
@@ -31,6 +34,8 @@ class InteractiveApp:
             key = cv2.waitKey(15)
             if key == 27:
                 break
+            else:
+                self.key_handler(key)
 
     def load_img(self, path):
         self.img = cv2.imread(path, cv2.IMREAD_COLOR)
@@ -81,16 +86,44 @@ class InteractiveApp:
         new_mask[prediction == 0] = cv2.GC_BGD
         new_mask[prediction == 1] = cv2.GC_FGD
 
-        print("bgd_count", len(np.where(prediction == 0)[0]))
-        print("fgd_count", len(np.where(prediction == 1)[0]))
+        if self.debug_mode:
+            print("bgd_count", len(np.where(prediction == 0)[0]))
+            print("fgd_count", len(np.where(prediction == 1)[0]))
 
         self.mask = new_mask
 
+    def reset(self):
+        self.res_img = self.img.copy()
+        self.pos_interactions = ([], [])
+        self.neg_interactions = ([], [])
+        self.need_update = False
+
+    def key_handler(self, key):
+        if key == ord('r'):
+            self.reset()
+        else:
+            pass
+
+
+def arg_parse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--img", help="image name (without _leftImg8bit.png)", required=True)
+    parser.add_argument("-m", "--model", help="stored model parameters")
+    parser.add_argument("-d", "--debug", help="debug mode", action="store_true", default=False)
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    image_file = "berlin_000000_000019_leftImg8bit.png"
-    disparity_file = "berlin_000000_000019_disparity.png"
-    model_pth = "InteractiveModel.pth"
+    args = arg_parse()
 
-    unet_technique = UNetSegmentation(image_file, disparity_file, model_pth)
-    InteractiveApp(image_file, unet_technique).run()
+    image_file = args.img + "_leftImg8bit.png"
+    disparity_file = args.img + "_disparity.png"
+    if args.model:
+        model_pth = args.model
+    else:
+        model_pth = "InteractiveModel.pth"
+
+    debug_mode = args.debug
+
+    unet_technique = UNetSegmentation(image_file, disparity_file, model_pth, debug_mode)
+    InteractiveApp(image_file, unet_technique, debug_mode).run()
