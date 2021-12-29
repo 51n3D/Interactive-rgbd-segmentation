@@ -193,11 +193,13 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     pa = pixel_accuracy(np_targets[b], np_prediction[b][0])
                     iou = intersection_over_union(np_targets[b], np_prediction[b][0])
                     out.append([pa, iou])
+                    progress_bar.set_postfix({'min val in prediction': np_prediction[b][0].min()})
             # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
-                #print(prediction)
-                out.append(model.backpropagation(prediction, targets, optimizer).detach().numpy())
+                loss = model.backpropagation(prediction, targets, optimizer).detach().numpy()
+                out.append(loss)
+                progress_bar.set_postfix({'loss (batch)': loss})
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             # show_target_and_prediction_image(prediction, target)  
@@ -230,6 +232,7 @@ def main() -> None:
     model = UNet(base=BASE)
     
     if os.path.exists(last_model_path):
+        log(2, "Loading model from {}".format(last_model_path))
         model.load_state_dict(torch.load(last_model_path))
     if not os.path.exists(best_model):
         os.makedirs(best_model)
