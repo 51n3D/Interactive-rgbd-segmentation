@@ -13,7 +13,7 @@ from logger import log
 
 MAX_INTERACTIONS = 3
 BASE = 2
-BATCH_SIZE = 4
+BATCH_SIZE = 8
 DOWNSAMPLE = 4
 
 SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
@@ -116,10 +116,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
         image_files = np.array(glob.glob(os.path.join(city_dir, "*" + image_ending + ".png")))
         # select random batch
         n = batch_size if batch_size < instances_files.shape[0] else instances_files.shape[0] - 1
-        batch = np.random.choice(instances_files.shape[0], n, replace=False)
+        image_batch = np.random.choice(instances_files.shape[0], n, replace=False)
         # setup progress bar
         progress_bar = tqdm.tqdm(total=n*max_interactions, ncols=100)
-        for image_file, instances_file, disparity_file in zip(image_files[batch], instances_files[batch], disparity_files[batch]):
+        for image_file, instances_file, disparity_file in zip(image_files[image_batch], instances_files[image_batch], disparity_files[image_batch]):
             image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED).astype(np.float32) # rgb
             # convert disparity to depth map
             disparity = cv2.imread(disparity_file, cv2.IMREAD_UNCHANGED).astype(np.float32) # disparity map
@@ -132,6 +132,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             disparity = downsample(disparity, DOWNSAMPLE)
             # label of each instance in the target image (filter single instance labels only)
             instance_lbs = filter_labels(np.unique(instances), SINGLE_INSTANCE_LABELS)
+            if instance_lbs.shape[0] == 0:
+                progress_bar.update(MAX_INTERACTIONS)
+                continue
             # select random batch
             n = batch_size if batch_size < instance_lbs.shape[0] else instance_lbs.shape[0] - 1
             batch = np.random.choice(instance_lbs.shape[0], n, replace=False)
