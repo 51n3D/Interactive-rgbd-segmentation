@@ -177,7 +177,6 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     old_fneg_inters[b] = fneg_interactions
                     old_fpos_inters[b] = fpos_interactions
                 data = np.array(data)
-                print(data.shape)
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
