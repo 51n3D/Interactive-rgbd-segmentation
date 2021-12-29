@@ -210,7 +210,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
-                print(prediction)
+                #print(prediction)
                 loss = model.backpropagation(prediction, targets, optimizer).detach().numpy()
                 out.append(loss)
                 progress_bar.set_postfix({'loss (batch)': loss})
