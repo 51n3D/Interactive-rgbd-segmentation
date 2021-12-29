@@ -12,8 +12,8 @@ import logger
 from logger import log
 
 MAX_INTERACTIONS = 10
-BASE = 3
-BATCH_SIZE = 4
+BASE = 5
+BATCH_SIZE = 8
 DOWNSAMPLE = 4
 
 SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
