@@ -130,6 +130,21 @@ def prepare_image_data_for_model(image, fneg_interactions, fpos_interactions, di
     return image, fneg_interactions, fpos_interactions, disparity
 
 
+def optimizer_to(optim, device):
+    for param in optim.state.values():
+        # Not sure there are any global tensors in the state dict
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+        elif isinstance(param, dict):
+            for subparam in param.values():
+                if isinstance(subparam, torch.Tensor):
+                    subparam.data = subparam.data.to(device)
+                    if subparam._grad is not None:
+                        subparam._grad.data = subparam._grad.data.to(device)
+
+
 def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -> None:
     out = []
     
@@ -221,19 +236,17 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 # push data to device
                 data = data.reshape((data.shape[0], data.shape[3], data.shape[1], data.shape[2]))
                 model_input = torch.tensor(data, dtype=torch.float32).to(device)
-                targets = np_targets.reshape((np_targets.shape[0], 1, np_targets.shape[1], np_targets.shape[2]))
-                targets = torch.tensor(targets, dtype=torch.float32)
+                tensor_targets = np_targets.reshape((np_targets.shape[0], 1, np_targets.shape[1], np_targets.shape[2]))
+                gpu_targets = torch.tensor(tensor_targets, dtype=torch.float32).to(device)
                 if process_type == TRAIN:
-                    prediction = model.forward(model_input)
+                    gpu_prediction = model.forward(model_input)
                 elif process_type == VALIDATE:
                     with torch.no_grad():
-                        prediction = model.forward(model_input)
-                prediction = prediction.cpu()
-                np_prediction = prediction.detach().numpy()
+                        gpu_prediction = model.forward(model_input)
+                np_prediction = gpu_prediction.cpu().detach().numpy()
                 # cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
                 np_prediction = np.where(np_prediction >= 0.5, 1, 0)
                 # cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
-                
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
                     fneg_guidance, fpos_guidance = guidance_signal_tr(np_targets[b], np_prediction[b][0])
@@ -245,7 +258,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 if process_type == TRAIN:
                     # Calculate loss and backpropate
                     #print(prediction)
-                    loss = model.backpropagation(prediction, targets, optimizer).detach().numpy()
+                    loss = model.backpropagation(gpu_prediction, gpu_targets, optimizer).cpu().detach().numpy()
                     out.append(loss)
                     progress_bar.set_postfix({'loss (batch)': loss})
                 if torch.cuda.is_available():
@@ -293,6 +306,7 @@ def main() -> None:
         os.makedirs(best_model)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer_to(optimizer, device)
     
     if not os.path.exists(training_data):
         os.makedirs(training_data)
