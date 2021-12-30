@@ -141,9 +141,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
         city_dir = os.path.join(dataset, city)
         log(2, "Current city - " + city)
         # load files
-        instances_files = np.array(glob.glob(os.path.join(city_dir, "*" + instances_ending + ".png")))
-        disparity_files = np.array(glob.glob(os.path.join(city_dir, "*" + disparity_ending + ".png")))
-        image_files = np.array(glob.glob(os.path.join(city_dir, "*" + image_ending + ".png")))
+        instances_files = np.array(glob.glob(os.path.join(city_dir, "*" + instances_ending + ".png"))).sort()
+        disparity_files = np.array(glob.glob(os.path.join(city_dir, "*" + disparity_ending + ".png"))).sort()
+        image_files = np.array(glob.glob(os.path.join(city_dir, "*" + image_ending + ".png"))).sort()
         # select random batch
         n = batch_size if batch_size < instances_files.shape[0] else instances_files.shape[0] - 1
         image_batch = np.random.choice(instances_files.shape[0], n, replace=False)
@@ -240,7 +240,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     fneg_guidances[b] = fneg_guidance.astype(np.float64)
                     fpos_guidances[b] = fpos_guidance.astype(np.float64)
                 progress_bar.update(1)
-                #cv2.waitKey()
+                # cv2.waitKey()
                 # calculate training metric
                 if process_type == TRAIN:
                     # Calculate loss and backpropate
