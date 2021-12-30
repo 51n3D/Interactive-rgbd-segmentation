@@ -25,6 +25,7 @@ class InteractiveApp:
         self.neg_interactions = ([], [])
 
         self.debug_mode = debug_mode
+        self.first_push = False
 
     def run(self):
         while True:
@@ -75,7 +76,13 @@ class InteractiveApp:
             self.segment()
             self.need_update = True
 
+            if not self.first_push:
+                self.first_push = True
+
         if event == cv2.EVENT_RBUTTONUP:
+            if not self.first_push:
+                return
+
             self.neg_interactions[0].append(y)
             self.neg_interactions[1].append(x)
             self.segment()
@@ -98,6 +105,7 @@ class InteractiveApp:
         self.pos_interactions = ([], [])
         self.neg_interactions = ([], [])
         self.need_update = False
+        self.first_push = False
 
     def key_handler(self, key):
         if key == ord('r'):
