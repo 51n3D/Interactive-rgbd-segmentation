@@ -3,6 +3,7 @@ import numpy as np
 import imageio
 import math
 import cv2
+from torch.functional import _return_counts
 import tqdm
 from unet import UNet
 import torch
@@ -17,6 +18,7 @@ BATCH_SIZE = 4
 DOWNSAMPLE = 4
 
 SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
+THRESHOLD = 0.001
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -25,7 +27,9 @@ TRAIN = 0
 VALIDATE = 1
 
 
-def filter_labels(labels, classes):
+def filter_labels(labels, classes, region_sizes, img_size, threshold):
+    # remove too small labeled regions
+    labels = labels[np.where(region_sizes / float(img_size) > threshold)]
     # single occurred labeled instance in the image
     single_filtered = labels[labels < 1000][np.in1d(labels[labels < 1000], classes)]
     # multiple occurred labeled instances in the image
@@ -39,7 +43,8 @@ def total_instances(instances_files: list) -> int:
     count = 0
     for instances_file in instances_files:
         instances = cv2.imread(instances_file, cv2.IMREAD_UNCHANGED).astype(np.float32)
-        count += filter_labels(np.unique(instances), SINGLE_INSTANCE_LABELS).shape[0]
+        unique_labels, lb_region_sizes = np.unique(instances, return_counts=True)
+        count += filter_labels(unique_labels, SINGLE_INSTANCE_LABELS, lb_region_sizes, np.prod(instances.shape), THRESHOLD).shape[0]
     return count
 
 
@@ -178,7 +183,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             image /= 255.0
             disparity = downsample(disparity, DOWNSAMPLE)
             # label of each instance in the target image (filter single instance labels only)
-            instance_lbs = filter_labels(np.unique(instances), SINGLE_INSTANCE_LABELS)
+            unique_lbs, lb_region_sizes = np.unique(instances, return_counts=True)
+            instance_lbs = filter_labels(unique_lbs, SINGLE_INSTANCE_LABELS, lb_region_sizes, np.prod(instances.shape), THRESHOLD)
             if instance_lbs.shape[0] == 0:
                 progress_bar.update(MAX_INTERACTIONS)
                 continue
@@ -222,10 +228,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     old_fneg_guidances[b] = fneg_guidances[b].copy()
                     old_fpos_guidances[b] = fpos_guidances[b].copy()
                 data = np.array(data)
-                # cv2.imshow("rgb", (data[0,:,:,0:3] * 255).astype(np.uint8))
-                # cv2.imshow("disparity", (data[0,:,:,3] * 255).astype(np.uint8))
-                # cv2.imshow("positive", (data[0,:,:,4] * 255).astype(np.uint8))
-                # cv2.imshow("negative", (data[0,:,:,5] * 255).astype(np.uint8))
+                cv2.imshow("rgb", (data[0,:,:,0:3] * 255).astype(np.uint8))
+                cv2.imshow("disparity", (data[0,:,:,3] * 255).astype(np.uint8))
+                cv2.imshow("positive", (data[0,:,:,4] * 255).astype(np.uint8))
+                cv2.imshow("negative", (data[0,:,:,5] * 255).astype(np.uint8))
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -244,16 +250,17 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     with torch.no_grad():
                         gpu_prediction = model.forward(model_input)
                 np_prediction = gpu_prediction.cpu().detach().numpy()
-                # cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
+                cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
                 np_prediction = np.where(np_prediction >= 0.5, 1, 0)
-                # cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
+                cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
+                cv2.imshow("target", (np_targets[0] * 255).astype(np.uint8))
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
                     fneg_guidance, fpos_guidance = guidance_signal_tr(np_targets[b], np_prediction[b][0])
                     fneg_guidances[b] = fneg_guidance.astype(np.float64)
                     fpos_guidances[b] = fpos_guidance.astype(np.float64)
                 progress_bar.update(1)
-                # cv2.waitKey()
+                cv2.waitKey()
                 # calculate training metric
                 if process_type == TRAIN:
                     # Calculate loss and backpropate
