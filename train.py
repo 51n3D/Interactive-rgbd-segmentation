@@ -12,8 +12,8 @@ import logger
 from logger import log
 
 MAX_INTERACTIONS = 10
-BASE = 5
-BATCH_SIZE = 8
+BASE = 3
+BATCH_SIZE = 4
 DOWNSAMPLE = 4
 
 SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
@@ -230,9 +230,9 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                         prediction = model.forward(model_input)
                 prediction = prediction.cpu()
                 np_prediction = prediction.detach().numpy()
-                #cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
+                # cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
                 np_prediction = np.where(np_prediction >= 0.5, 1, 0)
-                #cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
+                # cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
                 
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
@@ -240,7 +240,16 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     fneg_guidances[b] = fneg_guidance.astype(np.float64)
                     fpos_guidances[b] = fpos_guidance.astype(np.float64)
                 progress_bar.update(1)
-                cv2.waitKey()
+                #cv2.waitKey()
+                # calculate training metric
+                if process_type == TRAIN:
+                    # Calculate loss and backpropate
+                    #print(prediction)
+                    loss = model.backpropagation(prediction, targets, optimizer).detach().numpy()
+                    out.append(loss)
+                    progress_bar.set_postfix({'loss (batch)': loss})
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             # calculate validation metrics
             if process_type == VALIDATE:
                 for b in range(batch.shape[0]):
@@ -248,15 +257,6 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     iou = intersection_over_union(np_targets[b], np_prediction[b][0])
                     out.append([pa, iou])
                     progress_bar.set_postfix({'min val in prediction': np_prediction[b][0].min()})
-            # calculate training metric
-            if process_type == TRAIN:
-                # Calculate loss and backpropate
-                #print(prediction)
-                loss = model.backpropagation(prediction, targets, optimizer).detach().numpy()
-                out.append(loss)
-                progress_bar.set_postfix({'loss (batch)': loss})
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
             # show_target_and_prediction_image(prediction, target)  
         progress_bar.close()
     return np.array(out)
