@@ -228,10 +228,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     old_fneg_guidances[b] = fneg_guidances[b].copy()
                     old_fpos_guidances[b] = fpos_guidances[b].copy()
                 data = np.array(data)
-                cv2.imshow("rgb", (data[0,:,:,0:3] * 255).astype(np.uint8))
-                cv2.imshow("disparity", (data[0,:,:,3] * 255).astype(np.uint8))
-                cv2.imshow("positive", (data[0,:,:,4] * 255).astype(np.uint8))
-                cv2.imshow("negative", (data[0,:,:,5] * 255).astype(np.uint8))
+                # cv2.imshow("rgb", (data[0,:,:,0:3] * 255).astype(np.uint8))
+                # cv2.imshow("disparity", (data[0,:,:,3] * 255).astype(np.uint8))
+                # cv2.imshow("positive", (data[0,:,:,4] * 255).astype(np.uint8))
+                # cv2.imshow("negative", (data[0,:,:,5] * 255).astype(np.uint8))
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -250,10 +250,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     with torch.no_grad():
                         gpu_prediction = model.forward(model_input)
                 np_prediction = gpu_prediction.cpu().detach().numpy()
-                cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
+                # cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
                 np_prediction = np.where(np_prediction >= 0.5, 1, 0)
-                cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
-                cv2.imshow("target", (np_targets[0] * 255).astype(np.uint8))
+                # cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
+                # cv2.imshow("target", (np_targets[0] * 255).astype(np.uint8))
                 # add new corrections (new pos/neg clicks)
                 for b in range(batch.shape[0]):
                     fneg_guidance, fpos_guidance = guidance_signal_tr(np_targets[b], np_prediction[b][0])
