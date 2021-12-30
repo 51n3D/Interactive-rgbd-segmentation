@@ -1,2 +1,2 @@
 # Dependencies
-    python3 -m pip install opoencv-python pytorch numpy tqdm
+    python3 -m pip install opencv-python torch numpy tqdm
