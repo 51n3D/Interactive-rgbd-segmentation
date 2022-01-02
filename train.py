@@ -5,7 +5,7 @@ import math
 import cv2
 from torch.functional import _return_counts
 import tqdm
-from unet import UNet
+from unet import UNet, UNetRGBD
 import torch
 import matplotlib.pyplot as plt
 import os
@@ -208,7 +208,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             old_fneg_guidances = np.full(np_targets.shape, 0, dtype=np.float32)
             old_fpos_guidances = np.full(np_targets.shape, 0, dtype=np.float32)
             for current_inter in range(max_interactions):
-                data = []
+                rgb_data = []
+                depth_data = []
                 for b in range(batch.shape[0]):
                     # generate intensity map for positive/negative click
                     w = (max_interactions - current_inter) / float(max_interactions) # weight of click linearly decrease with number of interactions
@@ -223,15 +224,17 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     if fpos_guidances[b].max() > 0:
                         fpos_guidances[b] /= fpos_guidances[b].max()
                     #build 6 channel image for training (rgbdpn)
-                    data.append(np.dstack((image, disparity, fneg_guidances[b], fpos_guidances[b])))
+                    rgb_data.append(np.dstack((image.copy(), fneg_guidances[b], fpos_guidances[b])))
+                    depth_data.append(disparity.copy())
                     # update old guidances
                     old_fneg_guidances[b] = fneg_guidances[b].copy()
                     old_fpos_guidances[b] = fpos_guidances[b].copy()
-                data = np.array(data)
-                # cv2.imshow("rgb", (data[0,:,:,0:3] * 255).astype(np.uint8))
-                # cv2.imshow("disparity", (data[0,:,:,3] * 255).astype(np.uint8))
-                # cv2.imshow("positive", (data[0,:,:,4] * 255).astype(np.uint8))
-                # cv2.imshow("negative", (data[0,:,:,5] * 255).astype(np.uint8))
+                rgb_data = np.array(rgb_data)
+                depth_data = np.array(depth_data)
+                # cv2.imshow("rgb", (rgb_data[0,:,:,0:3] * 255).astype(np.uint8))
+                # cv2.imshow("disparity", (depth_data[0] * 255).astype(np.uint8))
+                # cv2.imshow("positive", (rgb_data[0,:,:,3] * 255).astype(np.uint8))
+                # cv2.imshow("negative", (rgb_data[0,:,:,4] * 255).astype(np.uint8))
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -240,8 +243,12 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 # (after this cycle compute the loss)                                               #
                 #####################################################################################
                 # push data to device
-                data = data.reshape((data.shape[0], data.shape[3], data.shape[1], data.shape[2]))
-                model_input = torch.tensor(data, dtype=torch.float32).to(device)
+                rgb_data = rgb_data.reshape((rgb_data.shape[0], rgb_data.shape[3], rgb_data.shape[1], rgb_data.shape[2]))
+                depth_data = depth_data.reshape((depth_data.shape[0], 1, depth_data.shape[1], depth_data.shape[2]))
+                model_input = (
+                    torch.tensor(rgb_data, dtype=torch.float32).to(device),
+                    torch.tensor(depth_data, dtype=torch.float32).to(device)
+                )
                 tensor_targets = np_targets.reshape((np_targets.shape[0], 1, np_targets.shape[1], np_targets.shape[2]))
                 gpu_targets = torch.tensor(tensor_targets, dtype=torch.float32).to(device)
                 if process_type == TRAIN:
@@ -260,7 +267,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     fneg_guidances[b] = fneg_guidance.astype(np.float64)
                     fpos_guidances[b] = fpos_guidance.astype(np.float64)
                 progress_bar.update(1)
-                cv2.waitKey()
+                # cv2.waitKey()
                 # calculate training metric
                 if process_type == TRAIN:
                     # Calculate loss and backpropate
@@ -304,7 +311,7 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     max_interactions = MAX_INTERACTIONS # number of max interactions
-    model = UNet(base=BASE)
+    model = UNetRGBD(base=BASE)
     
     if os.path.exists(last_model_path):
         log(2, "Loading model from {}".format(last_model_path))
