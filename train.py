@@ -229,10 +229,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     old_fpos_guidances[b] = fpos_guidances[b].copy()
                 rgb_data = np.array(rgb_data)
                 depth_data = np.array(depth_data)
-                cv2.imshow("rgb", (rgb_data[0] * 255).astype(np.uint8))
-                cv2.imshow("disparity", (depth_data[0,:,:,0] * 255).astype(np.uint8))
-                cv2.imshow("positive", (depth_data[0,:,:,1] * 255).astype(np.uint8))
-                cv2.imshow("negative", (depth_data[0,:,:,2] * 255).astype(np.uint8))
+                # cv2.imshow("rgb", (rgb_data[0] * 255).astype(np.uint8))
+                # cv2.imshow("disparity", (depth_data[0,:,:,0] * 255).astype(np.uint8))
+                # cv2.imshow("positive", (depth_data[0,:,:,1] * 255).astype(np.uint8))
+                # cv2.imshow("negative", (depth_data[0,:,:,2] * 255).astype(np.uint8))
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -255,10 +255,10 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     with torch.no_grad():
                         gpu_prediction = model.forward(model_input)
                 np_prediction = gpu_prediction.cpu().detach().numpy()
-                cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
+                # cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
                 np_prediction = np.where(np_prediction >= 0.5, 1, 0)
-                cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
-                cv2.imshow("target", (np_targets[0] * 255).astype(np.uint8))
+                # cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
+                # cv2.imshow("target", (np_targets[0] * 255).astype(np.uint8))
                 # add new corrections (new pos/neg clicks)
                 if current_inter != max_interactions - 1:
                     del model_input
