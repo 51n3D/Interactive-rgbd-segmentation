@@ -12,13 +12,13 @@ import os
 import logger
 from logger import log
 
-MAX_INTERACTIONS = 10
+MAX_INTERACTIONS = 3
 BASE = 3
-BATCH_SIZE = 4
+BATCH_SIZE = 6
 DOWNSAMPLE = 4
 
 SINGLE_INSTANCE_LABELS = np.array([24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
-THRESHOLD = 0.001
+THRESHOLD = 0.003
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -212,29 +212,27 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 depth_data = []
                 for b in range(batch.shape[0]):
                     # generate intensity map for positive/negative click
-                    w = (max_interactions - current_inter) / float(max_interactions) # weight of click linearly decrease with number of interactions
-                    fneg_guidances[b] *= w # weight interaction
-                    fpos_guidances[b] *= w # weight interaction
+                    #w = (max_interactions - current_inter) / float(max_interactions) # weight of click linearly decrease with number of interactions
+                    #fneg_guidances[b] *= w # weight interaction
+                    #fpos_guidances[b] *= w # weight interaction
                     # update new interaction map with old interactions
                     fneg_guidances[b] += old_fneg_guidances[b]
                     fpos_guidances[b] += old_fpos_guidances[b]
                     #normalize to (0, 1>
-                    if fneg_guidances[b].max() > 0:
-                        fneg_guidances[b] /= fneg_guidances[b].max()
-                    if fpos_guidances[b].max() > 0:
-                        fpos_guidances[b] /= fpos_guidances[b].max()
+                    fneg_guidances[b][np.where(fneg_guidances[b] > 1)] = 1
+                    fpos_guidances[b][np.where(fpos_guidances[b] > 1)] = 1
                     #build 6 channel image for training (rgbdpn)
-                    rgb_data.append(np.dstack((image.copy(), fneg_guidances[b], fpos_guidances[b])))
-                    depth_data.append(disparity.copy())
+                    rgb_data.append(image.copy())
+                    depth_data.append(np.dstack((disparity.copy(), fneg_guidances[b], fpos_guidances[b])))
                     # update old guidances
                     old_fneg_guidances[b] = fneg_guidances[b].copy()
                     old_fpos_guidances[b] = fpos_guidances[b].copy()
                 rgb_data = np.array(rgb_data)
                 depth_data = np.array(depth_data)
-                # cv2.imshow("rgb", (rgb_data[0,:,:,0:3] * 255).astype(np.uint8))
-                # cv2.imshow("disparity", (depth_data[0] * 255).astype(np.uint8))
-                # cv2.imshow("positive", (rgb_data[0,:,:,3] * 255).astype(np.uint8))
-                # cv2.imshow("negative", (rgb_data[0,:,:,4] * 255).astype(np.uint8))
+                cv2.imshow("rgb", (rgb_data[0] * 255).astype(np.uint8))
+                cv2.imshow("disparity", (depth_data[0,:,:,0] * 255).astype(np.uint8))
+                cv2.imshow("positive", (depth_data[0,:,:,1] * 255).astype(np.uint8))
+                cv2.imshow("negative", (depth_data[0,:,:,2] * 255).astype(np.uint8))
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -244,39 +242,43 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 #####################################################################################
                 # push data to device
                 rgb_data = rgb_data.reshape((rgb_data.shape[0], rgb_data.shape[3], rgb_data.shape[1], rgb_data.shape[2]))
-                depth_data = depth_data.reshape((depth_data.shape[0], 1, depth_data.shape[1], depth_data.shape[2]))
+                depth_data = depth_data.reshape((depth_data.shape[0], depth_data.shape[3], depth_data.shape[1], depth_data.shape[2]))
                 model_input = (
                     torch.tensor(rgb_data, dtype=torch.float32).to(device),
                     torch.tensor(depth_data, dtype=torch.float32).to(device)
                 )
                 tensor_targets = np_targets.reshape((np_targets.shape[0], 1, np_targets.shape[1], np_targets.shape[2]))
                 gpu_targets = torch.tensor(tensor_targets, dtype=torch.float32).to(device)
-                if process_type == TRAIN:
+                if process_type == TRAIN and current_inter == max_interactions - 1:
                     gpu_prediction = model.forward(model_input)
-                elif process_type == VALIDATE:
+                elif process_type == VALIDATE or current_inter != max_interactions - 1:
                     with torch.no_grad():
                         gpu_prediction = model.forward(model_input)
                 np_prediction = gpu_prediction.cpu().detach().numpy()
-                # cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
+                cv2.imshow("prediction", (np_prediction[0][0] * 255).astype(np.uint8))
                 np_prediction = np.where(np_prediction >= 0.5, 1, 0)
-                # cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
-                # cv2.imshow("target", (np_targets[0] * 255).astype(np.uint8))
+                cv2.imshow("prediction - threshold", (np_prediction[0][0] * 255).astype(np.uint8))
+                cv2.imshow("target", (np_targets[0] * 255).astype(np.uint8))
                 # add new corrections (new pos/neg clicks)
+                if current_inter != max_interactions - 1:
+                    del model_input
+                    del gpu_targets
+                    del gpu_prediction
                 for b in range(batch.shape[0]):
                     fneg_guidance, fpos_guidance = guidance_signal_tr(np_targets[b], np_prediction[b][0])
                     fneg_guidances[b] = fneg_guidance.astype(np.float64)
                     fpos_guidances[b] = fpos_guidance.astype(np.float64)
                 progress_bar.update(1)
-                # cv2.waitKey()
+                cv2.waitKey()
                 # calculate training metric
-                if process_type == TRAIN:
-                    # Calculate loss and backpropate
-                    #print(prediction)
-                    loss = model.backpropagation(gpu_prediction, gpu_targets, optimizer).cpu().detach().numpy()
-                    out.append(loss)
-                    progress_bar.set_postfix({'loss (batch)': loss})
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+            if process_type == TRAIN:
+                # Calculate loss and backpropate
+                #print(prediction)
+                loss = model.backpropagation(gpu_prediction, gpu_targets, optimizer).cpu().detach().numpy()
+                out.append(loss)
+                progress_bar.set_postfix({'loss (batch)': loss})
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             # calculate validation metrics
             if process_type == VALIDATE:
                 for b in range(batch.shape[0]):
@@ -350,34 +352,35 @@ def main() -> None:
         log(2, "Loss (AVG): {}".format(loss.sum()/loss.shape[0]))
 
         #validation
-        log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
-        dataset = os.path.join("dataset", "val")
-        model.eval()
-        accuracy = run(model, optimizer, max_interactions, dataset, BATCH_SIZE, VALIDATE)
-        accuracy = accuracy.T
-        mpa = accuracy[0].sum() / accuracy[0].shape[0]
-        miou = accuracy[1].sum() / accuracy[1].shape[0]
-        log(2, "Mean Pixel Accuracy: {}".format(mpa))
-        log(2, "Mean Intersection Over Union: {}".format(miou))
+        if epoch % 5 == 0:
+            log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
+            dataset = os.path.join("dataset", "val")
+            model.eval()
+            accuracy = run(model, optimizer, max_interactions, dataset, BATCH_SIZE, VALIDATE)
+            accuracy = accuracy.T
+            mpa = accuracy[0].sum() / accuracy[0].shape[0]
+            miou = accuracy[1].sum() / accuracy[1].shape[0]
+            log(2, "Mean Pixel Accuracy: {}".format(mpa))
+            log(2, "Mean Intersection Over Union: {}".format(miou))
 
-        # save training info
-        if os.path.exists(mean_losses_path):
-            mls = np.load(mean_losses_path)
-        if os.path.exists(mean_pixel_acc_path):
-            mpas = np.load(mean_pixel_acc_path)
-        if os.path.exists(mean_iou_path):
-            mious = np.load(mean_iou_path)
-        mls = np.append(ml, mls)
-        mpas = np.append(mpa, mpas)
-        mious = np.append(miou, mious)
-        np.save(mean_losses_path, np.array(mls))
-        np.save(mean_pixel_acc_path, np.array(mpas))
-        np.save(mean_iou_path, np.array(mious))
+            # save training info
+            if os.path.exists(mean_losses_path):
+                mls = np.load(mean_losses_path)
+            if os.path.exists(mean_pixel_acc_path):
+                mpas = np.load(mean_pixel_acc_path)
+            if os.path.exists(mean_iou_path):
+                mious = np.load(mean_iou_path)
+            mls = np.append(ml, mls)
+            mpas = np.append(mpa, mpas)
+            mious = np.append(miou, mious)
+            np.save(mean_losses_path, np.array(mls))
+            np.save(mean_pixel_acc_path, np.array(mpas))
+            np.save(mean_iou_path, np.array(mious))
 
-        if (miou > best_miou):
-            best_miou = miou
-            torch.save(model.state_dict(), best_model_path)
-        torch.save(model.state_dict(), last_model_path)
+            if (miou > best_miou):
+                best_miou = miou
+                torch.save(model.state_dict(), best_model_path)
+            torch.save(model.state_dict(), last_model_path)
         
         epoch += 1
 
