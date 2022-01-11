@@ -170,7 +170,7 @@ class UNetRGBD(nn.Module):
         rgb2 = self.rgb_down2(rgb1)
         rgb3 = self.rgb_down3(rgb2)
         rgb4 = self.rgb_down4(rgb3)
-
+        
         depth1 = self.depth_down1(depth)
         depth2 = self.depth_down2(depth1)
         depth3 = self.depth_down3(depth2)
@@ -178,9 +178,9 @@ class UNetRGBD(nn.Module):
 
         x5 = self.mid(torch.cat([rgb4, depth4], dim=1))
         x = self.up1(x5)
-        x = self.up2(x,  rgb3, depth3)
-        x = self.up3(x,  rgb2, depth2)
-        x = self.up4(x,  rgb1, depth1)
+        x = self.up2(x, rgb3, depth3)
+        x = self.up3(x, rgb2, depth2)
+        x = self.up4(x, rgb1, depth1)
         x = self.outc(x)
         return x
     

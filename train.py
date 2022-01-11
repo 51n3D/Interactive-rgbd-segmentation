@@ -12,7 +12,7 @@ import os
 import logger
 from logger import log
 
-MAX_INTERACTIONS = 3
+MAX_INTERACTIONS = 5
 BASE = 3
 BATCH_SIZE = 6
 DOWNSAMPLE = 4
@@ -56,7 +56,7 @@ def downsample(image: np.ndarray, ratio: int) -> np.ndarray:
 def distance_map(shape: tuple, marked_pixels: tuple) -> np.ndarray:
     map = np.zeros(shape, dtype=np.uint8)
     map[marked_pixels] = 1
-    return cv2.distanceTransform(map, cv2.DIST_L2, cv2.DIST_MASK_3)
+    return cv2.distanceTransform(map, cv2.DIST_L2, cv2.DIST_MASK_5)
 
 
 # def guidance_signal_tr(label: int, target: np.ndarray, prediction: np.ndarray) -> tuple:
@@ -79,12 +79,13 @@ def distance_map(shape: tuple, marked_pixels: tuple) -> np.ndarray:
 
 
 def dist_to_guidance(chamfer_dist: np.ndarray) -> np.ndarray:
-    guidance = np.zeros(chamfer_dist.shape)
+    guidance = np.ones(chamfer_dist.shape, dtype=np.uint8)
     if chamfer_dist.max() == 0:
-        return guidance
-    guidance[np.unravel_index(np.argmax(chamfer_dist), chamfer_dist.shape)] = 1
-    guidance = cv2.GaussianBlur(guidance, (9, 9), 2)
-    return guidance / guidance.max()
+        return chamfer_dist
+    guidance[np.unravel_index(np.argmax(chamfer_dist), chamfer_dist.shape)] = 0
+    guidance = cv2.distanceTransform(guidance, cv2.DIST_L2, cv2.DIST_MASK_3)
+    guidance /= guidance.max()
+    return 1 - guidance
 
 
 def guidance_signal_tr(target: np.ndarray, prediction: np.ndarray) -> tuple:
@@ -192,7 +193,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
             n = batch_size if batch_size < instance_lbs.shape[0] else instance_lbs.shape[0]
             batch = np.random.choice(instance_lbs.shape[0], n, replace=False)
             targets = []
-            fpos_guidances = []
+            
             fneg_guidances = []
             for i, i_lb in enumerate(instance_lbs[batch]):
                 # single target image for current lable
@@ -216,11 +217,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     #fneg_guidances[b] *= w # weight interaction
                     #fpos_guidances[b] *= w # weight interaction
                     # update new interaction map with old interactions
-                    fneg_guidances[b] += old_fneg_guidances[b]
-                    fpos_guidances[b] += old_fpos_guidances[b]
-                    #normalize to (0, 1>
-                    fneg_guidances[b][np.where(fneg_guidances[b] > 1)] = 1
-                    fpos_guidances[b][np.where(fpos_guidances[b] > 1)] = 1
+                    fneg_guidances[b] = np.maximum(fneg_guidances[b], old_fneg_guidances[b])
+                    fpos_guidances[b] = np.maximum(fpos_guidances[b], old_fpos_guidances[b])
                     #build 6 channel image for training (rgbdpn)
                     rgb_data.append(image.copy())
                     depth_data.append(np.dstack((disparity.copy(), fneg_guidances[b], fpos_guidances[b])))
@@ -231,8 +229,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 depth_data = np.array(depth_data)
                 # cv2.imshow("rgb", (rgb_data[0] * 255).astype(np.uint8))
                 # cv2.imshow("disparity", (depth_data[0,:,:,0] * 255).astype(np.uint8))
-                # cv2.imshow("positive", (depth_data[0,:,:,1] * 255).astype(np.uint8))
-                # cv2.imshow("negative", (depth_data[0,:,:,2] * 255).astype(np.uint8))
+                # cv2.imshow("positive", ((1-depth_data[0,:,:,1]) * 255).astype(np.uint8))
+                # cv2.imshow("negative", ((1-depth_data[0,:,:,2]) * 255).astype(np.uint8))
                 #####################################################################################
                 # TRAIN model # FILL                                                                #
                 # call the model.fit() or model.predict() or whatever                               #
@@ -249,6 +247,8 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                 )
                 tensor_targets = np_targets.reshape((np_targets.shape[0], 1, np_targets.shape[1], np_targets.shape[2]))
                 gpu_targets = torch.tensor(tensor_targets, dtype=torch.float32).to(device)
+                # plt.imshow(torch.tensor(rgb_data, dtype=torch.float32).detach().numpy()[0])
+                # plt.show()
                 if process_type == TRAIN and current_inter == max_interactions - 1:
                     gpu_prediction = model.forward(model_input)
                 elif process_type == VALIDATE or current_inter != max_interactions - 1:
@@ -269,7 +269,7 @@ def run(model, optimizer, max_interactions, dataset, batch_size, process_type) -
                     fneg_guidances[b] = fneg_guidance.astype(np.float64)
                     fpos_guidances[b] = fpos_guidance.astype(np.float64)
                 progress_bar.update(1)
-                cv2.waitKey()
+                # cv2.waitKey()
                 # calculate training metric
             if process_type == TRAIN:
                 # Calculate loss and backpropate
@@ -304,6 +304,7 @@ def main() -> None:
     mean_losses_path = os.path.join(training_data, "mean_losses.npy")
     mean_pixel_acc_path = os.path.join(training_data, "mean_pixel_acc.npy")
     mean_iou_path = os.path.join(training_data, "mean_iou.npy")
+    best_miou_path = os.path.join(training_data, "best_miou.npy")
     
     log(2, "Training data path: {}".format(training_data))
     log(2, "Best model path: {}".format(best_model))
@@ -329,7 +330,10 @@ def main() -> None:
          
     log(2, "TRAINING - interactive segmentation of rgbd images", logger.GREEN)
     epoch = 1 if not os.path.exists(mean_losses_path) else np.load(mean_losses_path).shape[0] + 1
-    best_miou = -1
+    if os.path.exists(best_miou_path):
+        best_miou = np.load(best_miou_path) + 0
+    else:
+        best_miou = -1
     mls = []
     mpas = []
     mious = []
@@ -352,7 +356,7 @@ def main() -> None:
         log(2, "Loss (AVG): {}".format(loss.sum()/loss.shape[0]))
 
         #validation
-        if epoch % 5 == 0:
+        if epoch % 1 == 0:
             log(2, "Validation of Epoch " + str(epoch), logger.YELLOW)
             dataset = os.path.join("dataset", "val")
             model.eval()
@@ -379,6 +383,7 @@ def main() -> None:
 
             if (miou > best_miou):
                 best_miou = miou
+                np.save(best_miou_path, best_miou)
                 torch.save(model.state_dict(), best_model_path)
             torch.save(model.state_dict(), last_model_path)
         
