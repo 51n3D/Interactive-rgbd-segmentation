@@ -149,11 +149,11 @@ class UNet(nn.Module):
 class UNetRGBD(nn.Module):
     def __init__(self, n_classes=1, base=10):
         super(UNetRGBD, self).__init__()
-        self.rgb_down1 = down(3, 2**base, pool=False)
+        self.rgb_down1 = down(5, 2**base, pool=False)
         self.rgb_down2 = down(2**base, 2**(base + 1))
         self.rgb_down3 = down(2**(base + 1), 2**(base + 2))
         self.rgb_down4 = down(2**(base + 2), 2**(base + 3))
-        self.depth_down1 = down(3, 2**base, pool=False)
+        self.depth_down1 = down(1, 2**base, pool=False)
         self.depth_down2 = down(2**base, 2**(base + 1))
         self.depth_down3 = down(2**(base + 1), 2**(base + 2))
         self.depth_down4 = down(2**(base + 2), 2**(base + 3))
