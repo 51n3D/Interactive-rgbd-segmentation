@@ -16,7 +16,7 @@ class double_conv(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def layers_list(self):
-        return [self.conv1, self.bn1, self.conv2, self.bn2]
+        return [self.conv1,self.bn1,self.conv2,self.bn2]
 
     def forward(self, x):
         x = self.conv1(x)
@@ -26,8 +26,7 @@ class double_conv(nn.Module):
         x = self.bn2(x)
         x = self.relu(x)
         return x
-
-
+    
 class down(nn.Module):
     def __init__(self, in_ch, out_ch, pool=True):
         super(down, self).__init__()
@@ -44,8 +43,7 @@ class down(nn.Module):
             x = self.mp(x)
         x = self.conv(x)
         return x
-
-
+    
 class up(nn.Module):
     def __init__(self, in_ch, out_ch, mid_ch):
         super(up, self).__init__()
@@ -55,15 +53,16 @@ class up(nn.Module):
     def layers_list(self):
         return self.conv.layers_list()
 
-    def forward(self, x1, x2=None):
+    def forward(self, x1, x2=None, x3=None):
         x1 = self.up(x1)
-        if x2 is None:
+        if x2 is None and x3 is None:
             x = x1
-        else:
+        elif x3 is None:
             x = torch.cat([x2, x1], dim=1)
+        else:
+            x = torch.cat([x2, x3, x1], dim=1)
         x = self.conv(x)
         return x
-
 
 class mid(nn.Module):
     def __init__(self, in_ch, out_ch, small_ch=None):
@@ -76,7 +75,7 @@ class mid(nn.Module):
             self.conv2 = nn.Conv2d(out_ch, small_ch, 3, padding=1)
 
     def layers_list(self):
-        return [self.conv1, self.conv2]
+        return [self.conv1,self.conv2]
 
     def forward(self, x):
         x = self.mp(x)
@@ -84,12 +83,11 @@ class mid(nn.Module):
         x = self.conv2(x)
         return x
 
-
 class outconv(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(outconv, self).__init__()
-        self.sigm = nn.Sigmoid()
         self.conv = nn.Conv2d(in_ch, out_ch, 1)
+        self.sigm = nn.Sigmoid()
 
     def layers_list(self):
         return [self.conv]
@@ -97,7 +95,6 @@ class outconv(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return self.sigm(x)
-
 
 class UNet(nn.Module):
     def __init__(self, n_classes=1, base=10):
@@ -126,6 +123,67 @@ class UNet(nn.Module):
         x = self.outc(x)
         return x
 
+    def backpropagation(self, prediction, target, optimizer):
+        loss = self.dice_loss(prediction, target)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        return loss
+
+    def dice_loss(self, inputs, targets, smooth=1):
+        # comment out if your model contains a sigmoid or equivalent activation layer
+        #inputs = torch.sigmoid(inputs)
+
+        # flatten label and prediction tensors
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        intersection = (inputs * targets).sum()
+        dice = (2. * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
+
+        return 1 - dice
+
+
+class UNetRGBD(nn.Module):
+    def __init__(self, n_classes=1, base=10):
+        super(UNetRGBD, self).__init__()
+        self.rgb_down1 = down(5, 2**base, pool=False)
+        self.rgb_down2 = down(2**base, 2**(base + 1))
+        self.rgb_down3 = down(2**(base + 1), 2**(base + 2))
+        self.rgb_down4 = down(2**(base + 2), 2**(base + 3))
+        self.depth_down1 = down(1, 2**base, pool=False)
+        self.depth_down2 = down(2**base, 2**(base + 1))
+        self.depth_down3 = down(2**(base + 1), 2**(base + 2))
+        self.depth_down4 = down(2**(base + 2), 2**(base + 3))
+        self.mid  = mid(2**(base + 4), 2**(base + 5), 2**(base + 4))
+        self.up1 = up(2**(base + 4), 2**(base + 3), 2**(base + 4))
+        self.up2 = up(2**(base + 4), 2**(base + 2), 2**(base + 3))
+        self.up3 = up(2**(base + 3), 2**(base + 1), 2**(base + 2))
+        self.up4 = up(2**(base + 2), 2**(base + 1), 2**(base + 1))
+        self.outc = outconv(2**(base + 1), n_classes)
+
+    def forward(self, x):
+        rgb, depth = x
+        rgb1 = self.rgb_down1(rgb)
+        rgb2 = self.rgb_down2(rgb1)
+        rgb3 = self.rgb_down3(rgb2)
+        rgb4 = self.rgb_down4(rgb3)
+        
+        depth1 = self.depth_down1(depth)
+        depth2 = self.depth_down2(depth1)
+        depth3 = self.depth_down3(depth2)
+        depth4 = self.depth_down4(depth3)
+
+        x5 = self.mid(torch.cat([rgb4, depth4], dim=1))
+        x = self.up1(x5)
+        x = self.up2(x, rgb3, depth3)
+        x = self.up3(x, rgb2, depth2)
+        x = self.up4(x, rgb1, depth1)
+        x = self.outc(x)
+        return x
+    
     def backpropagation(self, prediction, target, optimizer):
         loss = self.dice_loss(prediction, target)
 

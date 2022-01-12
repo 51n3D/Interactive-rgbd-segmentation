@@ -2,5 +2,8 @@
 training_data
 __pycache__
 best_model
+best_model_old
+training_data
+training_data_old
 test.py
 dataset
